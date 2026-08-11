@@ -27,3 +27,16 @@ func Connect() (*pgxpool.Pool, error) {
 
 	return pool, nil
 }
+
+func Migrate(pool *pgxpool.Pool) error {
+	sqlBytes, err := os.ReadFile("migrations/001_create_samples.sql")
+	if err != nil {
+		return fmt.Errorf("failed to read migration: %w", err)
+	}
+
+	if _, err := pool.Exec(context.Background(), string(sqlBytes)); err != nil {
+		return fmt.Errorf("failed to execute migration: %w", err)
+	}
+
+	return nil
+}
