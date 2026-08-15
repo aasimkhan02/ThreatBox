@@ -29,13 +29,20 @@ func Connect() (*pgxpool.Pool, error) {
 }
 
 func Migrate(pool *pgxpool.Pool) error {
-	sqlBytes, err := os.ReadFile("migrations/001_create_samples.sql")
-	if err != nil {
-		return fmt.Errorf("failed to read migration: %w", err)
+	migrations := []string{
+		"migrations/001_create_samples.sql",
+		"migrations/002_create_jobs.sql",
 	}
 
-	if _, err := pool.Exec(context.Background(), string(sqlBytes)); err != nil {
-		return fmt.Errorf("failed to execute migration: %w", err)
+	for _, path := range migrations {
+		sqlBytes, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read migration %s: %w", path, err)
+		}
+
+		if _, err := pool.Exec(context.Background(), string(sqlBytes)); err != nil {
+			return fmt.Errorf("failed to execute migration %s: %w", path, err)
+		}
 	}
 
 	return nil
