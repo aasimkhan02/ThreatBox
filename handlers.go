@@ -176,7 +176,8 @@ func ValidTransition(currentStatus string, newStatus string) bool {
 			return newStatus == "running"
 
 		case "running":
-			return newStatus == "completed" || newStatus == "failed"
+			return newStatus == "completed" || newStatus == "failed" ||
+			newStatus == "pending"
 
 		case "completed":
 			return false
@@ -231,7 +232,7 @@ func GetJob(db *pgxpool.Pool, jobID string) (storage.Job, error) {
 
 	err := db.QueryRow(
 		context.Background(),
-		`SELECT job_id, file_id, type, status, error_message, created_at, updated_at
+		`SELECT job_id, file_id, type, status, attempt_count, error_message, created_at, updated_at
 		FROM jobs
 		WHERE job_id = $1`,
 		jobID,
@@ -240,6 +241,7 @@ func GetJob(db *pgxpool.Pool, jobID string) (storage.Job, error) {
 		&job.FileID,
 		&job.Type,
 		&job.Status,
+		&job.JobAttempts,
 		&job.ErrorMessage,
 		&job.CreatedAt,
 		&job.UpdatedAt,
@@ -255,7 +257,7 @@ func GetJob(db *pgxpool.Pool, jobID string) (storage.Job, error) {
 func GetMultipleJobs(db *pgxpool.Pool) ([]storage.Job, error) {
 	rows, err := db.Query(
 		context.Background(),
-		`SELECT job_id, file_id, type, status, error_message, created_at, updated_at
+		`SELECT job_id, file_id, type, status, attempt_count, error_message, created_at, updated_at
 		FROM Jobs
 		ORDER BY created_at DESC`,
 	)
@@ -275,6 +277,7 @@ func GetMultipleJobs(db *pgxpool.Pool) ([]storage.Job, error) {
 			&job.FileID,
 			&job.Type,
 			&job.Status,
+			&job.JobAttempts,
 			&job.ErrorMessage,
 			&job.CreatedAt,
 			&job.UpdatedAt,

@@ -1,2 +1,2 @@
 ALTER TABLE jobs
-ADD COLUMN error_message TEXT;
+ADD COLUMN IF NOT EXISTS error_message TEXT;

@@ -11,54 +11,113 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func StartWorker(db *pgxpool.Pool) {
-	for {
-		err := ProcessNextJob(db)
 
-		if err != nil {
-			log.Println("Worker error:", err)
+
+func StartWorker(db *pgxpool.Pool) error {
+	if err := RecoverStaleJobs(db); err != nil {
+		return fmt.Errorf("failed to recover stale jobs: %w", err)
+	}
+
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			if err := RecoverStaleJobs(db); err != nil {
+				log.Printf("RecoverStaleJobs error: %v", err)
+			}
+		}
+	}()
+
+	for {
+		if err := ProcessNextJob(db); err != nil {
+			log.Printf("ProcessNextJob error: %v", err)
 		}
 
-		time.Sleep(2 * time.Second)
+		time.Sleep(time.Second)
 	}
 }
 
+const MaxAttempts = 3
+
 func FailRunningJob(db *pgxpool.Pool, jobID string, cause error) error {
-    _, err := db.Exec(
-        context.Background(),
-        `UPDATE jobs
-         SET status = 'failed',
-             error_message = $1,
-             updated_at = NOW()
-         WHERE job_id = $2
-           AND status = 'running'`,
-        cause.Error(),
-        jobID,
-    )
+	job, err := GetJob(db, jobID)
+	if err != nil {
+		return fmt.Errorf("failed to get job for retry: %w", err)
+	}
 
-    if err != nil {
-        return fmt.Errorf("failed to mark job as failed: %w", err)
-    }
+	if job.JobAttempts < MaxAttempts {
+		_, err := db.Exec(
+			context.Background(),
+			`UPDATE jobs
+			 SET status = 'pending',
+			     error_message = $1,
+			     updated_at = NOW()
+			 WHERE job_id = $2
+			   AND status = 'running'`,
+			cause.Error(),
+			jobID,
+		)
 
-    return cause
+		if err != nil {
+			return fmt.Errorf("failed to retry job: %w", err)
+		}
+
+		log.Printf(
+			"Job %s failed on attempt %d, retrying",
+			jobID,
+			job.JobAttempts,
+		)
+
+		return nil
+	}
+
+	_, err = db.Exec(
+		context.Background(),
+		`UPDATE jobs
+		 SET status = 'failed',
+		     error_message = $1,
+		     updated_at = NOW()
+		 WHERE job_id = $2
+		   AND status = 'running'`,
+		cause.Error(),
+		jobID,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to permanently fail job: %w", err)
+	}
+
+	log.Printf(
+		"Job %s permanently failed after %d attempts",
+		jobID,
+		job.JobAttempts,
+	)
+
+	return cause
 }
+
 
 func ProcessNextJob(db *pgxpool.Pool) error {
 	var jobID string
 
 	err := db.QueryRow(
 		context.Background(),
-		`UPDATE jobs
-		SET status = 'running'
-		WHERE job_id = (
-			SELECT job_id
-			FROM jobs
-			WHERE status = 'pending'
-			ORDER BY created_at
-			FOR UPDATE SKIP LOCKED
-			LIMIT 1
-		) 
-		RETURNING job_id`,
+		`WITH next_job AS (
+		SELECT job_id
+		FROM jobs
+		WHERE status = 'pending'
+		ORDER BY created_at
+		FOR UPDATE SKIP LOCKED
+		LIMIT 1
+		)
+		UPDATE jobs
+		SET status = 'running',
+			attempt_count = attempt_count + 1,
+			updated_at = NOW()
+		FROM next_job
+		WHERE jobs.job_id = next_job.job_id
+		RETURNING jobs.job_id`,
 	).Scan(&jobID)
 
 	if err != nil {
@@ -110,4 +169,28 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 	log.Printf("Result: %v", result)
 
     return nil
+}
+
+func RecoverStaleJobs(db *pgxpool.Pool) error {
+	result, err := db.Exec(
+		context.Background(),
+		`
+		UPDATE jobs
+		SET status = 'pending',
+		    updated_at = NOW(),
+		    error_message = NULL
+		WHERE status = 'running'
+		  AND updated_at < NOW() - INTERVAL '5 minutes'
+		`,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to recover stale jobs: %w", err)
+	}
+
+	if result.RowsAffected() > 0 {
+		log.Printf("Recovered %d stale jobs", result.RowsAffected())
+	}
+
+	return nil
 }

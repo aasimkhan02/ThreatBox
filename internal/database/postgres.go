@@ -34,7 +34,8 @@ func Migrate(pool *pgxpool.Pool) error {
 		"migrations/002_create_jobs.sql",
 		"migrations/003_create_results.sql",
 		"migrations/004_add_job_error.sql",
-	}
+		"migrations/005_job_attempts.sql",
+}
 
 	for _, path := range migrations {
 		sqlBytes, err := os.ReadFile(path)

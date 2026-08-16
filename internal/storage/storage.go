@@ -9,6 +9,7 @@ type Job struct {
 	FileID string
 	Type string
 	Status string
+	JobAttempts int64
 	ErrorMessage *string
 	CreatedAt time.Time
 	UpdatedAt time.Time
