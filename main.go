@@ -32,14 +32,9 @@ func main() {
 
 	fmt.Println("Database migrations completed!")
 
-	job, err := GetMultipleJobs(db)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Printf("Job: %+v\n", job)
-
 	storageService := storage.NewFilesystem("uploads")
+
+	go StartWorker(db)
 
 	//routes
 	mux.HandleFunc("/", home)

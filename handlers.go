@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5"
@@ -168,98 +169,6 @@ func CreateSample(
 	}
 }
 
-// func CreateJob(w http.ResponseWriter, r *http.Request, db *pgxpool.Pool){
-// 	if r.Method != http.MethodPost {
-// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-// 		return 
-// 	}
-
-// 	type CreateJobRequest struct {
-// 		SampleID string `json:"sample_id"`
-// 		Type     string `json:"type"`
-// 	}
-
-// 	var req CreateJobRequest
-
-// 	err := json.NewDecoder(r.Body).Decode(&req)
-
-// 	if err != nil {
-// 		http.Error(w, "Invalid request body", http.StatusBadRequest)
-// 		return
-// 	}
-
-// 	if req.SampleID == "" {
-// 		http.Error(w, "sample_id is required", http.StatusBadRequest)
-// 		return
-// 	}
-
-// 	if req.Type == "" {
-// 		req.Type = "malware_scan"
-// 	}
-
-// 	var exists bool
-
-// 	err = db.QueryRow(
-// 		context.Background(),
-// 		`SELECT EXISTS (
-// 			SELECT 1
-// 			FROM samples
-// 			WHERE sample_id = $1
-// 		)`,
-// 		req.SampleID,
-// 	).Scan(&exists)
-
-// 	if err != nil {
-// 		http.Error(w, "Database error", http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	if !exists {
-// 		http.Error(w, "Error not found", http.StatusNotFound)
-// 		return
-// 	}
-
-// 	var jobID string
-
-// 	err = db.QueryRow(
-// 		context.Background(),
-// 		`INSERT INTO jobs (
-// 			file_id,
-// 			type,
-// 			status
-// 		)
-// 		VALUES ($1, $2, $3)
-// 		RETURNING job_id`,
-// 		req.SampleID,
-// 		req.Type,
-// 		"pending",
-// 	).Scan(&jobID)
-
-// 	if err != nil {
-// 		http.Error(w, "Failed to create job", http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	w.Header().Set(
-// 		"Content-Type",
-// 		"application/json",
-// 	)
-
-// 	w.WriteHeader(http.StatusCreated)
-
-// 	err = json.NewEncoder(w).Encode(map[string]interface{}{
-// 		"message":   "Job created successfully",
-// 		"job_id":    jobID,
-// 		"sample_id": req.SampleID,
-// 		"type":      req.Type,
-// 		"status":    "pending",
-// 	})
-
-// 	if err != nil {
-// 		return
-// 	}
-// }
-
 func ValidTransition(currentStatus string, newStatus string) bool {
 	
 	switch currentStatus {
@@ -322,7 +231,7 @@ func GetJob(db *pgxpool.Pool, jobID string) (storage.Job, error) {
 
 	err := db.QueryRow(
 		context.Background(),
-		`SELECT job_id, file_id, type, status, created_at, updated_at
+		`SELECT job_id, file_id, type, status, error_message, created_at, updated_at
 		FROM jobs
 		WHERE job_id = $1`,
 		jobID,
@@ -331,6 +240,7 @@ func GetJob(db *pgxpool.Pool, jobID string) (storage.Job, error) {
 		&job.FileID,
 		&job.Type,
 		&job.Status,
+		&job.ErrorMessage,
 		&job.CreatedAt,
 		&job.UpdatedAt,
 	)
@@ -345,7 +255,7 @@ func GetJob(db *pgxpool.Pool, jobID string) (storage.Job, error) {
 func GetMultipleJobs(db *pgxpool.Pool) ([]storage.Job, error) {
 	rows, err := db.Query(
 		context.Background(),
-		`SELECT job_id, file_id, type, status, created_at, updated_at
+		`SELECT job_id, file_id, type, status, error_message, created_at, updated_at
 		FROM Jobs
 		ORDER BY created_at DESC`,
 	)
@@ -365,6 +275,7 @@ func GetMultipleJobs(db *pgxpool.Pool) ([]storage.Job, error) {
 			&job.FileID,
 			&job.Type,
 			&job.Status,
+			&job.ErrorMessage,
 			&job.CreatedAt,
 			&job.UpdatedAt,
 		)
@@ -471,4 +382,83 @@ func UpdateStatusHandler(w http.ResponseWriter, r *http.Request, db *pgxpool.Poo
 	if err != nil {
 		return
 	}
+}
+
+func GetSample(db *pgxpool.Pool, sampleID string) (storage.Sample, error) {
+	var sample storage.Sample
+
+	err := db.QueryRow(
+		context.Background(),
+		`SELECT sample_id, original_filename, sha256, file_size, storage_path, status, created_at
+		FROM samples
+		WHERE sample_id = $1`,
+		sampleID,
+	).Scan(
+		&sample.SampleID,
+		&sample.OriginalFileName,
+		&sample.SHA256,
+		&sample.FileSize,
+		&sample.StoragePath,
+		&sample.Status,
+		&sample.CreatedAt,
+	)
+
+	if err != nil {
+		return storage.Sample{}, err
+	}
+
+	return sample, nil
+}
+
+func CreateResult(db *pgxpool.Pool, result storage.Result) error {
+	_, err := db.Exec(
+		context.Background(),
+		`INSERT INTO results (
+			job_id,
+			filename,
+			file_size,
+			sha256,
+			status
+		)
+		VALUES ($1, $2, $3, $4, $5)`,
+		result.JobID,
+		result.FileName,
+		result.FileSize,
+		result.SHA256,
+		result.Status,
+	)
+
+	return err
+}
+
+
+func ProcessSample(sample storage.Sample, jobID string) (storage.Result, error) {
+	file, err := os.Open(sample.StoragePath)
+	if err != nil {
+		return storage.Result{}, fmt.Errorf(
+			"failed to open sample: %w",
+			err,
+		)
+	}
+	defer file.Close()
+
+	_, err = io.ReadAll(file)
+	if err != nil {
+		return storage.Result{}, fmt.Errorf(
+			"failed to read sample: %w",
+			err,
+		)
+	}
+
+	result := storage.Result{
+		JobID:     jobID,
+		FileName:  sample.OriginalFileName,
+		FileSize:  sample.FileSize,
+		SHA256:    sample.SHA256,
+		Status:    "processed",
+	}
+
+	log.Println("Processing sample:", sample.OriginalFileName)
+
+	return result, nil
 }
