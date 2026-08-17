@@ -45,26 +45,26 @@ func main() {
 
 	mux.HandleFunc("/api/jobs", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
-			case http.MethodGet:
-				GetMultipleJobsHandler(w, r, db)
-			default:
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
+		case http.MethodGet:
+			GetMultipleJobsHandler(w, r, db)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 
 	mux.HandleFunc("/api/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
 		jobID := r.PathValue("id")
 
 		switch r.Method {
-			case http.MethodGet:
-				GetJobHandler(w, r, db, jobID)
+		case http.MethodGet:
+			GetJobHandler(w, r, db, jobID)
 
-			case http.MethodPatch:
-				UpdateStatusHandler(w, r, db, jobID)
+		case http.MethodPatch:
+			UpdateStatusHandler(w, r, db, jobID)
 
-			default:
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 
 	fmt.Println("Server running on :8080")

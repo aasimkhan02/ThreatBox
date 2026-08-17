@@ -34,3 +34,12 @@ type Result struct {
 	Status string
 	CreatedAT time.Time
 }
+
+type AnalysisResult struct {
+	ResultID    string
+	JobID       string
+	SampleID    string
+	StartedAt   *time.Time
+	CompletedAt *time.Time
+	Status      string
+}
