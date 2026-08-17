@@ -1,4 +1,4 @@
-CREATE TABLE analysis_results (
+CREATE TABLE IF NOT EXISTS analysis_results (
     result_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
     job_id UUID NOT NULL REFERENCES jobs(job_id),
