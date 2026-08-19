@@ -43,3 +43,7 @@ type AnalysisResult struct {
 	CompletedAt *time.Time
 	Status      string
 }
+
+type Event struct {
+	
+}
