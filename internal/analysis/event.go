@@ -7,6 +7,7 @@ type EventType string
 const (
 	EventFileOpen       EventType = "file_open"
 	EventFileWrite      EventType = "file_write"
+	EventFileClose      EventType = "file_close"
 	EventFileDelete      EventType = "file_delete"
 	EventProcessCreate  EventType = "process_create"
 	EventProcessExit    EventType = "process_exit"
