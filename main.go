@@ -9,6 +9,7 @@ import (
 
 	"github.com/aasimkhan02/ThreatBox/internal/database"
 	"github.com/aasimkhan02/ThreatBox/internal/storage"
+	"github.com/aasimkhan02/ThreatBox/internal/telemetry"
 )
 
 func main() {
@@ -35,6 +36,10 @@ func main() {
 	storageService := storage.NewFilesystem("uploads")
 
 	go StartWorker(db)
+
+	if err := telemetry.StartETW(); err != nil {
+		log.Fatal(err)
+	}
 
 	//routes
 	mux.HandleFunc("/", home)
