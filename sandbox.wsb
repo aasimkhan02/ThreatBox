@@ -1,0 +1,29 @@
+<Configuration>
+    <VGpu>Disable</VGpu>
+    <Networking>Disable</Networking>
+    <MemoryInMB>2048</MemoryInMB>
+
+    <MappedFolders>
+        <MappedFolder>
+            <HostFolder>C:\ThreatBox\runtime\sample</HostFolder>
+            <SandboxFolder>C:\ThreatBox\sample</SandboxFolder>
+            <ReadOnly>true</ReadOnly>
+        </MappedFolder>
+
+        <MappedFolder>
+            <HostFolder>C:\ThreatBox\runtime\output</HostFolder>
+            <SandboxFolder>C:\ThreatBox\output</SandboxFolder>
+            <ReadOnly>false</ReadOnly>
+        </MappedFolder>
+
+        <MappedFolder>
+            <HostFolder>C:\ThreatBoxSandbox</HostFolder>
+            <SandboxFolder>C:\ThreatBox\tools</SandboxFolder>
+            <ReadOnly>true</ReadOnly>
+        </MappedFolder>
+    </MappedFolders>
+
+    <LogonCommand>
+        <Command>cmd.exe /c start C:\ThreatBox\tools\etw-collector.exe &amp; C:\ThreatBox\sample\sample.exe &gt; C:\ThreatBox\output\stdout.txt 2&gt; C:\ThreatBox\output\stderr.txt</Command>
+    </LogonCommand>
+</Configuration>

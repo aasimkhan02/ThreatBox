@@ -101,7 +101,7 @@ func StartETW() error {
 		return fmt.Errorf("start ETW consumer: %w", err)
 	}
 
-	time.Sleep(30 * time.Second)
+	time.Sleep(5 * time.Minute)
 
 	return nil
 }

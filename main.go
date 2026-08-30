@@ -37,10 +37,11 @@ func main() {
 
 	go StartWorker(db)
 
-	if err := telemetry.StartETW(); err != nil {
-		log.Fatal(err)
+	if err := telemetry.ReadSandboxEvents(
+	`C:\ThreatBox\runtime\output\events.jsonl`,
+	); err != nil {
+		log.Println(err)
 	}
-
 	//routes
 	mux.HandleFunc("/", home)
 
