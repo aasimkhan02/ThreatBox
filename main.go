@@ -37,12 +37,15 @@ func main() {
 
 	go StartWorker(db)
 
-	if err := telemetry.ReadSandboxEvents(
-	`C:\ThreatBox\runtime\output\events.jsonl`,
-	); err != nil {
-		log.Println(err)
-	}
-	//routes
+	go func() {
+		if err := telemetry.WatchSandboxEvents(
+			`C:\ThreatBox\runtime\output\events.jsonl`,
+		); err != nil {
+			log.Println("Sandbox event watcher:", err)
+		}
+	}()
+
+	// Routes
 	mux.HandleFunc("/", home)
 
 	mux.HandleFunc("/api/samples", func(w http.ResponseWriter, r *http.Request) {
@@ -53,6 +56,7 @@ func main() {
 		switch r.Method {
 		case http.MethodGet:
 			GetMultipleJobsHandler(w, r, db)
+
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}

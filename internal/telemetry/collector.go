@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"time"
 )
 
 type ProcessEvent struct {
@@ -18,34 +20,98 @@ type ProcessEvent struct {
 	Time      string `json:"time"`
 }
 
-func ReadSandboxEvents(path string) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open sandbox events: %w", err)
-	}
-	defer file.Close()
+// WatchSandboxEvents watches the host-side Sandbox telemetry file
+// and processes only events appended after ThreatBox starts.
+func WatchSandboxEvents(path string) error {
+	var offset int64
+	started := false
 
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		var event ProcessEvent
-
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-			fmt.Printf("invalid event: %v\n", err)
+	for {
+		file, err := os.Open(path)
+		if err != nil {
+			// The file may not exist yet or may temporarily be unavailable.
+			time.Sleep(200 * time.Millisecond)
 			continue
 		}
 
-		fmt.Printf(
-			"THREATBOX EVENT | %s | PID=%d | Image=%s\n",
-			event.Type,
-			event.PID,
-			event.Image,
-		)
-	}
+		info, err := file.Stat()
+		if err != nil {
+			file.Close()
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read sandbox events: %w", err)
-	}
+		// On the first successful open, ignore everything already
+		// in the file. We only want new events.
+		if !started {
+			offset = info.Size()
+			started = true
+			file.Close()
 
-	return nil
+			fmt.Printf(
+				"Sandbox telemetry watcher started at byte %d\n",
+				offset,
+			)
+
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		// If the collector recreated/truncated the file,
+		// start reading from the beginning again.
+		if info.Size() < offset {
+			offset = 0
+		}
+
+		// No new data.
+		if info.Size() <= offset {
+			file.Close()
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		// Move to the first unread byte.
+		if _, err := file.Seek(offset, io.SeekStart); err != nil {
+			file.Close()
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		reader := bufio.NewReader(file)
+
+		for {
+			line, err := reader.ReadBytes('\n')
+
+			// Only consume complete JSONL lines.
+			if err == nil {
+				offset += int64(len(line))
+
+				var event ProcessEvent
+
+				if json.Unmarshal(line, &event) == nil {
+					fmt.Printf(
+						"THREATBOX EVENT | %s | PID=%d | Image=%s\n",
+						event.Type,
+						event.PID,
+						event.Image,
+					)
+				}
+
+				continue
+			}
+
+			if err == io.EOF {
+				// Incomplete trailing line stays unread.
+				break
+			}
+
+			// Any temporary read problem: retry on the next poll.
+			break
+		}
+
+		file.Close()
+
+		time.Sleep(200 * time.Millisecond)
+	}
 }
+

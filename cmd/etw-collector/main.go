@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/tekert/goetw/etw"
@@ -21,15 +23,69 @@ type Event struct {
 	Time      string `json:"time"`
 }
 
-func main() {
-	output := `C:\ThreatBox\output\events.jsonl`
+const outputPath = `C:\ThreatBox\output\events.jsonl`
 
-	file, err := os.Create(output)
+var writeMu sync.Mutex
+
+var (
+	kernel32             = syscall.NewLazyDLL("kernel32.dll")
+	procFlushFileBuffers = kernel32.NewProc("FlushFileBuffers")
+)
+
+func flushFile(file *os.File) error {
+	r1, _, err := procFlushFileBuffers.Call(file.Fd())
+
+	if r1 == 0 {
+		return fmt.Errorf("FlushFileBuffers failed: %w", err)
+	}
+
+	return nil
+}
+
+func writeEvent(event Event) error {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	writeMu.Lock()
+	defer writeMu.Unlock()
+
+	file, err := os.OpenFile(
+		outputPath,
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
+		0644,
+	)
+	if err != nil {
+		return fmt.Errorf("open events.jsonl: %w", err)
+	}
+	defer file.Close()
+
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		return fmt.Errorf("write events.jsonl: %w", err)
+	}
+
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync events.jsonl: %w", err)
+	}
+
+	if err := flushFile(file); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func main() {
+	file, err := os.Create(outputPath)
 	if err != nil {
 		fmt.Println("output:", err)
 		return
 	}
-	defer file.Close()
+	file.Close()
+
+	fmt.Println("ETW collector started")
+	fmt.Println("Output:", outputPath)
 
 	flags := etw.GetKernelProviderFlags("Process")
 
@@ -41,7 +97,7 @@ func main() {
 		return
 	}
 
-	fmt.Println("ETW collector started")
+	fmt.Println("ETW kernel session started")
 
 	consumer := etw.NewConsumer(context.Background())
 	defer consumer.Stop()
@@ -51,12 +107,14 @@ func main() {
 	consumer.EventPreparedCallback = func(
 		h *etw.EventRecordHelper,
 	) error {
+
 		var event Event
 
 		event.PID, _ = h.GetPropertyUint("ProcessId")
 		event.Time = h.Timestamp().Format(time.RFC3339Nano)
 
 		switch h.EventID() {
+
 		case 1:
 			event.Type = "process_start"
 
@@ -75,18 +133,19 @@ func main() {
 			return nil
 		}
 
-		data, err := json.Marshal(event)
-		if err != nil {
-			return err
+		if err := writeEvent(event); err != nil {
+			fmt.Printf(
+				"WRITE ERROR | PID=%d | Image=%s | %v\n",
+				event.PID,
+				event.Image,
+				err,
+			)
+			return nil
 		}
 
-		if _, err := file.Write(append(data, '\n')); err != nil {
-			return err
-		}
+		data, _ := json.Marshal(event)
 
-		file.Sync()
-
-		fmt.Println(string(data))
+		fmt.Printf("ETW EVENT | %s\n", string(data))
 
 		return nil
 	}
@@ -96,6 +155,7 @@ func main() {
 		return
 	}
 
-	// Keep collector alive while Sandbox is running.
+	fmt.Println("ETW consumer running")
+
 	select {}
 }
