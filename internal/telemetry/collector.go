@@ -20,11 +20,19 @@ type ProcessEvent struct {
 	Time      string `json:"time"`
 }
 
+type ProcessTracker struct {
+	tracked map[uint64]bool
+}
+
 // WatchSandboxEvents watches the host-side Sandbox telemetry file
 // and processes only events appended after ThreatBox starts.
 func WatchSandboxEvents(path string) error {
 	var offset int64
 	started := false
+
+	tracker := ProcessTracker{
+		tracked: make(map[uint64]bool),
+	}
 
 	for {
 		file, err := os.Open(path)
@@ -89,12 +97,52 @@ func WatchSandboxEvents(path string) error {
 				var event ProcessEvent
 
 				if json.Unmarshal(line, &event) == nil {
-					fmt.Printf(
-						"THREATBOX EVENT | %s | PID=%d | Image=%s\n",
-						event.Type,
-						event.PID,
-						event.Image,
-					)
+
+					// Start tracking when the malware sample itself appears.
+					if event.Type == "process_start" &&
+						event.Image == "sample.exe" {
+
+						tracker.tracked[event.PID] = true
+
+						fmt.Printf(
+							"THREATBOX EVENT | %s | PID=%d | Image=%s\\n",
+							event.Type,
+							event.PID,
+							event.Image,
+						)
+
+						continue
+					}
+
+					// Keep children of tracked processes.
+					if event.Type == "process_start" &&
+						tracker.tracked[event.PPID] {
+
+						tracker.tracked[event.PID] = true
+
+						fmt.Printf(
+							"THREATBOX EVENT | %s | PID=%d | Image=%s\\n",
+							event.Type,
+							event.PID,
+							event.Image,
+						)
+
+						continue
+					}
+
+					// Keep stop events for tracked processes.
+					if event.Type == "process_stop" &&
+						tracker.tracked[event.PID] {
+
+						fmt.Printf(
+							"THREATBOX EVENT | %s | PID=%d | Image=%s\\n",
+							event.Type,
+							event.PID,
+							event.Image,
+						)
+
+						delete(tracker.tracked, event.PID)
+					}
 				}
 
 				continue
