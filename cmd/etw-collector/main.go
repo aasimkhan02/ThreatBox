@@ -15,15 +15,19 @@ import (
 type Event struct {
 	Type      string `json:"type"`
 	PID       uint64 `json:"pid"`
-	PPID      uint64 `json:"ppid,omitempty"`
+	PPID      uint64 `ppid,omitempty"`
 	SessionID uint64 `json:"session_id,omitempty"`
 	Image     string `json:"image,omitempty"`
 	Command   string `json:"command,omitempty"`
 	ExitCode  int64  `json:"exit_code,omitempty"`
 	Time      string `json:"time"`
+	EventID   uint16  `json:"event_id"`
 }
 
-const outputPath = `C:\ThreatBox\output\events.jsonl`
+const (
+	outputPath = `C:\ThreatBox\output\events.jsonl`
+	readyPath  = `C:\ThreatBox\output\etw-ready`
+)
 
 var writeMu sync.Mutex
 
@@ -84,6 +88,8 @@ func main() {
 	}
 	file.Close()
 
+	_ = os.Remove(readyPath)
+
 	fmt.Println("ETW collector started")
 	fmt.Println("Output:", outputPath)
 
@@ -108,12 +114,21 @@ func main() {
 		h *etw.EventRecordHelper,
 	) error {
 
+		eventID := h.EventID()
+
+		if eventID != 1 && eventID != 2 {
+			return nil
+		}
+
 		var event Event
 
-		event.PID, _ = h.GetPropertyUint("ProcessId")
+		event.EventID = eventID
 		event.Time = h.Timestamp().Format(time.RFC3339Nano)
 
-		switch h.EventID() {
+		// ProcessId from the event payload.
+		event.PID, _ = h.GetPropertyUint("ProcessId")
+
+		switch eventID {
 
 		case 1:
 			event.Type = "process_start"
@@ -128,9 +143,6 @@ func main() {
 
 			event.ExitCode, _ = h.GetPropertyInt("ExitStatus")
 			event.Image, _ = h.GetPropertyString("ImageFileName")
-
-		default:
-			return nil
 		}
 
 		if err := writeEvent(event); err != nil {
@@ -144,7 +156,6 @@ func main() {
 		}
 
 		data, _ := json.Marshal(event)
-
 		fmt.Printf("ETW EVENT | %s\n", string(data))
 
 		return nil
@@ -155,6 +166,16 @@ func main() {
 		return
 	}
 
+	if err := os.WriteFile(
+		readyPath,
+		[]byte("ready\n"),
+		0644,
+	); err != nil {
+		fmt.Println("ready signal:", err)
+		return
+	}
+
+	fmt.Println("ETW READY")
 	fmt.Println("ETW consumer running")
 
 	select {}

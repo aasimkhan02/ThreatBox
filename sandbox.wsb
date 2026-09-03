@@ -24,6 +24,8 @@
     </MappedFolders>
 
     <LogonCommand>
-        <Command>cmd.exe /c start C:\ThreatBox\tools\etw-collector.exe &amp; C:\ThreatBox\sample\sample.exe &gt; C:\ThreatBox\output\stdout.txt 2&gt; C:\ThreatBox\output\stderr.txt</Command>
+        <Command>cmd.exe /c start "" C:\ThreatBox\tools\etw-collector.exe</Command>
     </LogonCommand>
+
+    
 </Configuration>

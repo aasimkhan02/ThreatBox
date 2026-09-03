@@ -9,7 +9,6 @@ import (
 
 	"github.com/aasimkhan02/ThreatBox/internal/database"
 	"github.com/aasimkhan02/ThreatBox/internal/storage"
-	"github.com/aasimkhan02/ThreatBox/internal/telemetry"
 )
 
 func main() {
@@ -37,14 +36,6 @@ func main() {
 
 	go StartWorker(db)
 
-	go func() {
-		if err := telemetry.WatchSandboxEvents(
-			`C:\ThreatBox\runtime\output\events.jsonl`,
-		); err != nil {
-			log.Println("Sandbox event watcher:", err)
-		}
-	}()
-
 	// Routes
 	mux.HandleFunc("/", home)
 
@@ -56,7 +47,6 @@ func main() {
 		switch r.Method {
 		case http.MethodGet:
 			GetMultipleJobsHandler(w, r, db)
-
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
