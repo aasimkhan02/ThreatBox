@@ -1,5 +1,7 @@
 package mitre
 
+import "github.com/aasimkhan02/ThreatBox/internal/analysis/scoring"
+
 type Technique struct {
 	ID          string
 	Name        string
@@ -15,8 +17,9 @@ type TechniqueMatch struct {
 }
 
 type AnalysisOutput struct {
-	Sample     interface{}            `json:"sample"`
-	Files      interface{}            `json:"files"`
-	Processes  interface{}            `json:"processes"`
-	Techniques []TechniqueMatch       `json:"techniques"`
+	Sample      interface{}          `json:"sample"`
+	Files       interface{}          `json:"files"`
+	Processes   interface{}          `json:"processes"`
+	Techniques  []TechniqueMatch     `json:"techniques"`
+	ThreatScore scoring.ThreatScore  `json:"threat_score"`
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/aasimkhan02/ThreatBox/internal/analysis"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/ioc"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/mitre"
+	"github.com/aasimkhan02/ThreatBox/internal/analysis/scoring"
 )
 
 func addChild(parent, child *analysis.ProcessNode) {
@@ -341,11 +342,19 @@ func analyzeEvents(path string) error {
 
 	techniques := mitre.Map(iocResult, mitreDB)
 
+	techniqueIDs := make([]string, 0, len(techniques))
+	for _, technique := range techniques {
+		techniqueIDs = append(techniqueIDs, technique.TechniqueID)
+	}
+
+	threatScore := scoring.Calculate(techniqueIDs)
+
 	output := mitre.AnalysisOutput{
-		Sample:     iocResult.Sample,
-		Files:      iocResult.Files,
-		Processes:  iocResult.Processes,
-		Techniques: techniques,
+		Sample:      iocResult.Sample,
+		Files:       iocResult.Files,
+		Processes:   iocResult.Processes,
+		Techniques:  techniques,
+		ThreatScore: threatScore,
 	}
 
 	jsonData, err := json.MarshalIndent(output, "", "  ")
