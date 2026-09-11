@@ -7,11 +7,13 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"net/http"
 
 	"github.com/aasimkhan02/ThreatBox/internal/analysis"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/ioc"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/mitre"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/scoring"
+	"github.com/aasimkhan02/ThreatBox/internal/analysis/stream"
 )
 
 func addChild(parent, child *analysis.ProcessNode) {
@@ -311,7 +313,15 @@ func markDescendants(root *analysis.ProcessNode, relevant map[uint64]bool) {
 	}
 }
 
-func analyzeEvents(path string) error {
+func analyzeEvents(path string, streamServer *stream.Server) error {
+
+	streamServer.Broadcast(stream.Event{
+		Type: "analysis_started",
+		Data: map[string]interface{}{
+			"message": "Analysis started",
+		},
+	})
+
 	processes, fileEvents, sample, lostEvents, _, fileNames, err := readEvents(path)
 	if err != nil {
 		return err
@@ -342,12 +352,25 @@ func analyzeEvents(path string) error {
 
 	techniques := mitre.Map(iocResult, mitreDB)
 
+	for _, technique := range techniques {
+		streamServer.Broadcast(stream.Event{
+			Type: "technique_detected",
+			Data: technique,
+		})
+	}
+
 	techniqueIDs := make([]string, 0, len(techniques))
 	for _, technique := range techniques {
 		techniqueIDs = append(techniqueIDs, technique.TechniqueID)
 	}
 
 	threatScore := scoring.Calculate(techniqueIDs)
+
+	streamServer.Broadcast(stream.Event{
+		Type: "score_updated",
+		Data: threatScore,
+	})
+
 
 	output := mitre.AnalysisOutput{
 		Sample:      iocResult.Sample,
@@ -362,8 +385,12 @@ func analyzeEvents(path string) error {
 		return fmt.Errorf("marshal analysis result: %w", err)
 	}
 
-	fmt.Println(string(jsonData))
+	streamServer.Broadcast(stream.Event{
+		Type: "analysis_completed",
+		Data: output,
+	})
 
+	fmt.Println(string(jsonData))
 	fmt.Println("ANALYSIS")
 	fmt.Printf("Target: %s (PID=%d)\n", sample.Image, sample.PID)
 
@@ -403,12 +430,31 @@ func analyzeEvents(path string) error {
 func main() {
 	// path := `C:\ThreatBox\runtime\output\events.jsonl`
 	path := `C:\ThreatBox\output\events.jsonl`
+
 	if len(os.Args) > 1 {
 		path = os.Args[1]
 	}
 
-	if err := analyzeEvents(path); err != nil {
+	streamServer := stream.NewServer()
+
+	http.HandleFunc("/ws", streamServer.HandleWebSocket)
+
+	go func() {
+		err := http.ListenAndServe(":8081", nil)
+		if err != nil {
+			fmt.Println("WebSocket server error:", err)
+		}
+	}()
+
+	fmt.Println("WebSocket server running on ws://localhost:8081/ws")
+	fmt.Println("Press ENTER to start analysis...")
+
+	fmt.Scanln()
+
+	if err := analyzeEvents(path, streamServer); err != nil {
 		fmt.Println("Analyzer error:", err)
 		os.Exit(1)
 	}
+
+	select {}
 }

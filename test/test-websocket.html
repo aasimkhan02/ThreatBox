@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<body>
+<h2>WebSocket Test</h2>
+<pre id="output"></pre>
+
+<script>
+const output = document.getElementById("output");
+
+function log(message) {
+    output.textContent += message + "\n";
+}
+
+const ws = new WebSocket("ws://localhost:8081/ws");
+
+ws.onopen = () => {
+    log("CONNECTED");
+};
+
+ws.onmessage = (event) => {
+    log("EVENT: " + event.data);
+};
+
+ws.onclose = () => {
+    log("CLOSED");
+};
+
+ws.onerror = () => {
+    log("ERROR");
+};
+</script>
+
+</body>
+</html>
