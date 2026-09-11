@@ -13,3 +13,10 @@ type TechniqueMatch struct {
 	Tactic      string `json:"tactic"`
 	Evidence    string `json:"evidence"`
 }
+
+type AnalysisOutput struct {
+	Sample     interface{}            `json:"sample"`
+	Files      interface{}            `json:"files"`
+	Processes  interface{}            `json:"processes"`
+	Techniques []TechniqueMatch       `json:"techniques"`
+}

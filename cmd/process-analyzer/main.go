@@ -10,6 +10,7 @@ import (
 
 	"github.com/aasimkhan02/ThreatBox/internal/analysis"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/ioc"
+	"github.com/aasimkhan02/ThreatBox/internal/analysis/mitre"
 )
 
 func addChild(parent, child *analysis.ProcessNode) {
@@ -332,7 +333,26 @@ func analyzeEvents(path string) error {
 	activities := collectSampleFileActivity(fileEvents, relevantPIDs, processes, fileNames)
 
 	iocResult := ioc.Extract(activities, processes, relevantPIDs, sample)
-	jsonData, _ := json.MarshalIndent(iocResult, "", "  ")
+
+	mitreDB, err := mitre.LoadDatabase(`data\mitre-data\enterprise-attack.json`)
+	if err != nil {
+		return fmt.Errorf("load MITRE database: %w", err)
+	}
+
+	techniques := mitre.Map(iocResult, mitreDB)
+
+	output := mitre.AnalysisOutput{
+		Sample:     iocResult.Sample,
+		Files:      iocResult.Files,
+		Processes:  iocResult.Processes,
+		Techniques: techniques,
+	}
+
+	jsonData, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal analysis result: %w", err)
+	}
+
 	fmt.Println(string(jsonData))
 
 	fmt.Println("ANALYSIS")
@@ -372,7 +392,8 @@ func analyzeEvents(path string) error {
 }
 
 func main() {
-	path := `C:\ThreatBox\runtime\output\events.jsonl`
+	// path := `C:\ThreatBox\runtime\output\events.jsonl`
+	path := `C:\ThreatBox\output\events.jsonl`
 	if len(os.Args) > 1 {
 		path = os.Args[1]
 	}
