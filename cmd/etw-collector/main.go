@@ -25,6 +25,7 @@ type Event struct {
 	Image      string `json:"image,omitempty"`
 	Command    string `json:"command,omitempty"`
 	ExitCode   int64  `json:"exit_code,omitempty"`
+
 	FileName   string `json:"file_name,omitempty"`
 	ParentPath string `json:"parent_path,omitempty"`
 	FileObject uint64 `json:"file_object,omitempty"`
@@ -32,6 +33,14 @@ type Event struct {
 	Offset     uint64 `json:"offset,omitempty"`
 	IoSize     uint64 `json:"io_size,omitempty"`
 	InfoClass  uint64 `json:"info_class,omitempty"`
+
+	// Network
+	SourceIP   string `json:"source_ip,omitempty"`
+	SourcePort uint64 `json:"source_port,omitempty"`
+	DestIP     string `json:"dest_ip,omitempty"`
+	DestPort   uint64 `json:"dest_port,omitempty"`
+	Protocol   string `json:"protocol,omitempty"`
+
 	LostEvents uint64 `json:"lost_events,omitempty"`
 }
 
@@ -45,6 +54,8 @@ const (
 var (
 	kernel32             = syscall.NewLazyDLL("kernel32.dll")
 	procFlushFileBuffers = kernel32.NewProc("FlushFileBuffers")
+
+	tcpIPGuid = etw.MustParseGUID("{9a280ac0-c8e0-11d1-84e2-00c04fb998a2}")
 )
 
 type eventWriter struct {
@@ -58,7 +69,11 @@ func newEventWriter(path string) (*eventWriter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
-	return &eventWriter{file: f, buf: bufio.NewWriterSize(f, 256*1024)}, nil
+
+	return &eventWriter{
+		file: f,
+		buf:  bufio.NewWriterSize(f, 256*1024),
+	}, nil
 }
 
 func (w *eventWriter) write(event Event) error {
@@ -71,6 +86,7 @@ func (w *eventWriter) write(event Event) error {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	_, err = w.buf.Write(data)
 	return err
 }
@@ -103,6 +119,7 @@ func (w *eventWriter) close() error {
 	if err := w.flush(true); err != nil {
 		return err
 	}
+
 	return w.file.Close()
 }
 
@@ -112,7 +129,9 @@ type fileNameCache struct {
 }
 
 func newFileNameCache() *fileNameCache {
-	return &fileNameCache{names: make(map[uint64]string, 4096)}
+	return &fileNameCache{
+		names: make(map[uint64]string, 4096),
+	}
 }
 
 func (c *fileNameCache) put(fileObject uint64, name string) {
@@ -133,6 +152,7 @@ func (c *fileNameCache) get(fileObject uint64) string {
 	c.mu.RLock()
 	name := c.names[fileObject]
 	c.mu.RUnlock()
+
 	return name
 }
 
@@ -140,24 +160,31 @@ func (c *fileNameCache) putBoth(fileObject, fileKey uint64, name string) {
 	if name == "" {
 		return
 	}
+
 	c.mu.Lock()
+
 	if fileObject != 0 {
 		c.names[fileObject] = name
 	}
+
 	if fileKey != 0 {
 		c.names[fileKey] = name
 	}
+
 	c.mu.Unlock()
 }
 
 func (c *fileNameCache) forgetBoth(fileObject, fileKey uint64) {
 	c.mu.Lock()
+
 	if fileObject != 0 {
 		delete(c.names, fileObject)
 	}
+
 	if fileKey != 0 && fileKey != fileObject {
 		delete(c.names, fileKey)
 	}
+
 	c.mu.Unlock()
 }
 
@@ -174,22 +201,21 @@ func (c *fileNameCache) forget(fileObject uint64) {
 func fileObjectAndKey(h *etw.EventRecordHelper) (uint64, uint64) {
 	fileObject, _ := h.GetPropertyUint("FileObject")
 	fileKey, _ := h.GetPropertyUint("FileKey")
+
 	return fileObject, fileKey
 }
 
 func fileObjectOrKey(h *etw.EventRecordHelper) uint64 {
 	fileObject, fileKey := fileObjectAndKey(h)
+
 	if fileObject != 0 {
 		return fileObject
 	}
+
 	return fileKey
 }
 
-// fileIoDiag tracks raw FileIo traffic reaching our callback, independent of
-// whether buildFileEvent successfully parsed/wrote it. This lets us tell
-// "the OS never sent us these events" (session/flags problem) apart from
-// "we got them but failed to parse them" (property/schema problem) just by
-// reading stdout, without attaching a debugger.
+// fileIoDiag tracks raw FileIo traffic reaching our callback.
 type fileIoDiag struct {
 	mu           sync.Mutex
 	totalSeen    uint64
@@ -222,15 +248,26 @@ func (d *fileIoDiag) report() {
 	defer d.mu.Unlock()
 
 	if d.totalSeen == 0 {
-		fmt.Println("FILEIO DIAG: 0 FileIo-provider events reached the callback in this interval " +
-			"(this points at the session/flags, not at buildFileEvent, if it stays 0 while sample.exe touches files)")
+		fmt.Println(
+			"FILEIO DIAG: 0 FileIo-provider events reached the callback in this interval " +
+				"(this points at the session/flags, not at buildFileEvent, if it stays 0 while sample.exe touches files)",
+		)
 		return
 	}
 
-	fmt.Printf("FILEIO DIAG: %d raw FileIo events seen | by opcode: %v", d.totalSeen, d.byOpcode)
+	fmt.Printf(
+		"FILEIO DIAG: %d raw FileIo events seen | by opcode: %v",
+		d.totalSeen,
+		d.byOpcode,
+	)
+
 	if len(d.unhandledOps) > 0 {
-		fmt.Printf(" | unhandled opcodes (not in buildFileEvent's switch): %v", d.unhandledOps)
+		fmt.Printf(
+			" | unhandled opcodes (not in buildFileEvent's switch): %v",
+			d.unhandledOps,
+		)
 	}
+
 	fmt.Println()
 
 	d.totalSeen = 0
@@ -251,10 +288,12 @@ func main() {
 	fmt.Println("ETW collector started")
 	fmt.Println("Output:", outputPath)
 
-	// Session 1: legacy NT Kernel Logger for Process + Thread events.
+	// Session 1: NT Kernel Logger
+	// Process + Thread + TCP/IP events.
 	kernelFlags := etw.KernelNtFlag(
 		etw.EVENT_TRACE_FLAG_PROCESS |
-			etw.EVENT_TRACE_FLAG_THREAD,
+			etw.EVENT_TRACE_FLAG_THREAD |
+			etw.EVENT_TRACE_FLAG_NETWORK_TCPIP,
 	)
 
 	kernelSession := etw.NewKernelRealTimeSession(kernelFlags)
@@ -267,12 +306,7 @@ func main() {
 
 	fmt.Println("ETW kernel session started")
 
-	// Session 2: modern manifest-based Microsoft-Windows-Kernel-File provider.
-	// Only enable useful file telemetry. 0x1F90 includes:
-	// filename (0x10), create (0x80), read (0x100), write (0x200),
-	// delete-path (0x400), rename/setlink-path (0x800), create-new-file (0x1000).
-	// It deliberately excludes FILEIO (0x20) and OP_END (0x40), which are
-	// responsible for the noisy cleanup/close/operation-end stream.
+	// Session 2: Microsoft-Windows-Kernel-File
 	fileSession := etw.NewRealTimeSession("ThreatBox-Kernel-File")
 	defer fileSession.Stop()
 
@@ -299,12 +333,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Consumer for Process + Thread events.
+	// Consumer for Process + Thread + Network events.
 	kernelConsumer := etw.NewConsumer(ctx)
 	defer kernelConsumer.Stop()
 	kernelConsumer.FromSessions(kernelSession)
 
-	// Consumer for Microsoft-Windows-Kernel-File events.
+	// Consumer for File events.
 	fileConsumer := etw.NewConsumer(ctx)
 	defer fileConsumer.Stop()
 	fileConsumer.FromSessions(fileSession)
@@ -317,6 +351,11 @@ func main() {
 			if opcode == 1 || opcode == 2 {
 				handleProcessEvent(writer, h, opcode)
 			}
+			return nil
+		}
+
+		if providerID == *tcpIPGuid {
+			handleNetworkEvent(writer, h)
 			return nil
 		}
 
@@ -338,6 +377,7 @@ func main() {
 				fmt.Printf("WRITE ERROR: %v\n", err)
 			}
 		}
+
 		return nil
 	}
 
@@ -374,13 +414,17 @@ func main() {
 		select {
 		case <-sigCh:
 			fmt.Println("shutting down")
+
 			fileConsumer.Stop()
 			kernelConsumer.Stop()
+
 			fileSession.Stop()
 			kernelSession.Stop()
+
 			if err := writer.close(); err != nil {
 				fmt.Println("final flush:", err)
 			}
+
 			return
 
 		case <-flushTicker.C:
@@ -394,12 +438,14 @@ func main() {
 			for _, t := range kernelConsumer.GetTraces() {
 				total += t.RTLostEvents.Load()
 			}
+
 			for _, t := range fileConsumer.GetTraces() {
 				total += t.RTLostEvents.Load()
 			}
 
 			if total != lastLost {
 				lastLost = total
+
 				fmt.Printf("ETW LOST EVENTS: %d\n", total)
 
 				_ = writer.write(Event{
@@ -446,6 +492,43 @@ func handleProcessEvent(writer *eventWriter, h *etw.EventRecordHelper, opcode ui
 	fmt.Printf("ETW EVENT | %s\n", string(data))
 }
 
+func handleNetworkEvent(writer *eventWriter, h *etw.EventRecordHelper) {
+	var event Event
+
+	event.EventID = h.EventID()
+	event.Time = h.Timestamp().Format(time.RFC3339Nano)
+
+	// For kernel TCP/IP events, the event header identifies the process.
+	event.PID = uint64(h.EventRec.EventHeader.ProcessId)
+
+	switch event.EventID {
+	case 12:
+		event.Type = "network_connect"
+		event.Protocol = "TCP"
+
+	case 15:
+		event.Type = "network_accept"
+		event.Protocol = "TCP"
+
+	default:
+		return
+	}
+
+	// Try the normal named-property helpers first.
+	event.SourceIP = getStringAny(h, "saddr", "SourceAddress")
+	event.DestIP = getStringAny(h, "daddr", "DestinationAddress")
+	event.SourcePort = getUintAny(h, "sport", "SourcePort")
+	event.DestPort = getUintAny(h, "dport", "DestinationPort")
+
+	if err := writer.write(event); err != nil {
+		fmt.Printf("NETWORK WRITE ERROR: %v\n", err)
+		return
+	}
+
+	data, _ := json.Marshal(event)
+	fmt.Printf("NETWORK EVENT | %s\n", string(data))
+}
+
 func handleThreadEvent(writer *eventWriter, h *etw.EventRecordHelper, opcode uint16) {
 	var event Event
 
@@ -483,22 +566,25 @@ func handleThreadEvent(writer *eventWriter, h *etw.EventRecordHelper, opcode uin
 	}
 }
 
-// getUintAny/getStringAny tolerate version differences in the manifest schema.
+// getUintAny tolerates version differences in the manifest schema.
 func getUintAny(h *etw.EventRecordHelper, names ...string) uint64 {
 	for _, name := range names {
 		if value, err := h.GetPropertyUint(name); err == nil {
 			return value
 		}
 	}
+
 	return 0
 }
 
+// getStringAny tolerates version differences in the manifest schema.
 func getStringAny(h *etw.EventRecordHelper, names ...string) string {
 	for _, name := range names {
 		if value, err := h.GetPropertyString(name); err == nil {
 			return value
 		}
 	}
+
 	return ""
 }
 
@@ -508,8 +594,8 @@ func buildManifestFileEvent(h *etw.EventRecordHelper, names *fileNameCache) (Eve
 	event.EventID = h.EventID()
 	event.Time = h.Timestamp().Format(time.RFC3339Nano)
 
-	// Microsoft-Windows-Kernel-File is a manifest provider, so the
-	// event header PID is the process that issued the operation.
+	// Microsoft-Windows-Kernel-File is a manifest provider,
+	// so the event header PID is the process that issued the operation.
 	event.PID = uint64(h.EventRec.EventHeader.ProcessId)
 
 	// Versioned schemas use either ThreadId or IssuingThreadId.
@@ -520,9 +606,11 @@ func buildManifestFileEvent(h *etw.EventRecordHelper, names *fileNameCache) (Eve
 		// NameCreate / NameDelete: seed FileKey -> path correlation.
 		event.FileKey = getUintAny(h, "FileKey")
 		event.FileName = getStringAny(h, "FileName")
+
 		if event.FileKey == 0 || event.FileName == "" {
 			return Event{}, false
 		}
+
 		names.put(event.FileKey, event.FileName)
 
 		if event.EventID == 10 {
@@ -536,21 +624,26 @@ func buildManifestFileEvent(h *etw.EventRecordHelper, names *fileNameCache) (Eve
 		event.FileObject = getUintAny(h, "FileObject")
 		event.FileKey = getUintAny(h, "FileKey")
 		event.FileName = getStringAny(h, "FileName", "OpenPath")
+
 		if event.FileName != "" {
 			names.putBoth(event.FileObject, event.FileKey, event.FileName)
 		}
+
 		event.Type = "file_create"
 
 	case 15:
 		// Read.
 		event.FileObject, event.FileKey = fileObjectAndKey(h)
 		event.FileName = getStringAny(h, "FileName")
+
 		if event.FileName == "" {
 			event.FileName = names.get(event.FileObject)
 		}
+
 		if event.FileName == "" {
 			event.FileName = names.get(event.FileKey)
 		}
+
 		event.Offset = getUintAny(h, "ByteOffset", "Offset")
 		event.IoSize = getUintAny(h, "IOSize", "IoSize", "Length")
 		event.Type = "file_read"
@@ -559,12 +652,15 @@ func buildManifestFileEvent(h *etw.EventRecordHelper, names *fileNameCache) (Eve
 		// Write.
 		event.FileObject, event.FileKey = fileObjectAndKey(h)
 		event.FileName = getStringAny(h, "FileName")
+
 		if event.FileName == "" {
 			event.FileName = names.get(event.FileObject)
 		}
+
 		if event.FileName == "" {
 			event.FileName = names.get(event.FileKey)
 		}
+
 		event.Offset = getUintAny(h, "ByteOffset", "Offset")
 		event.IoSize = getUintAny(h, "IOSize", "IoSize", "Length")
 		event.Type = "file_write"
@@ -573,33 +669,41 @@ func buildManifestFileEvent(h *etw.EventRecordHelper, names *fileNameCache) (Eve
 		// DeletePath carries the actual path inline.
 		event.FileObject, event.FileKey = fileObjectAndKey(h)
 		event.FileName = getStringAny(h, "FilePath", "FileName")
+
 		if event.FileName == "" {
 			event.FileName = names.get(event.FileObject)
 		}
+
 		if event.FileName == "" {
 			event.FileName = names.get(event.FileKey)
 		}
+
 		event.Type = "file_delete_information"
 
 	case 27:
-		// RenamePath carries the actual path inline in modern Kernel-File.
+		// RenamePath carries the actual path inline.
 		event.FileObject, event.FileKey = fileObjectAndKey(h)
 		event.FileName = getStringAny(h, "FilePath", "FileName")
+
 		if event.FileName == "" {
 			event.FileName = names.get(event.FileObject)
 		}
+
 		if event.FileName == "" {
 			event.FileName = names.get(event.FileKey)
 		}
+
 		event.Type = "file_rename"
 
 	case 30:
 		// CreateNewFile also carries the filename inline.
 		event.FileObject = getUintAny(h, "FileObject")
 		event.FileName = getStringAny(h, "FileName")
+
 		if event.FileName != "" {
 			names.put(event.FileObject, event.FileName)
 		}
+
 		event.Type = "file_create"
 
 	default:
