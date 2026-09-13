@@ -17,9 +17,13 @@ type TechniqueMatch struct {
 }
 
 type AnalysisOutput struct {
-	Sample      interface{}          `json:"sample"`
-	Files       interface{}          `json:"files"`
-	Processes   interface{}          `json:"processes"`
-	Techniques  []TechniqueMatch     `json:"techniques"`
-	ThreatScore scoring.ThreatScore  `json:"threat_score"`
+	Sample      interface{}         `json:"sample"`
+	Files       interface{}         `json:"files"`
+	Processes   interface{}         `json:"processes"`
+	Network     interface{}         `json:"network"`
+	Registry    interface{}         `json:"registry"`
+	DNS         interface{}         `json:"dns"`
+	Images      interface{}         `json:"images"`
+	Techniques  []TechniqueMatch    `json:"techniques"`
+	ThreatScore scoring.ThreatScore `json:"threat_score"`
 }

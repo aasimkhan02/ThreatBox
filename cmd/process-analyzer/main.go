@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
-	"net/http"
 
 	"github.com/aasimkhan02/ThreatBox/internal/analysis"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/ioc"
@@ -15,6 +15,24 @@ import (
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/scoring"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/stream"
 )
+
+// telemetry is everything extracted from one pass over the collector's
+// JSONL output. Replaces the previous seven-value positional return
+// from readEvents, which was about to grow past ten.
+type telemetry struct {
+	Processes map[uint64]*analysis.ProcessNode
+	Sample    *analysis.ProcessNode
+
+	FileEvents     []*analysis.Event
+	NetworkEvents  []*analysis.Event
+	RegistryEvents []*analysis.Event
+	DNSEvents      []*analysis.Event
+	ImageEvents    []*analysis.Event
+
+	FileNames       map[uint64]string
+	ThreadToProcess map[uint64]uint64
+	LostEvents      uint64
+}
 
 func addChild(parent, child *analysis.ProcessNode) {
 	parent.Children = append(parent.Children, child)
@@ -74,6 +92,41 @@ func normalizeFileAction(eventType string) string {
 	}
 }
 
+func normalizeRegistryAction(eventType string) string {
+	switch eventType {
+	case "registry_create":
+		return "CREATE"
+	case "registry_open":
+		return "OPEN"
+	case "registry_delete":
+		return "DELETE_KEY"
+	case "registry_set_value":
+		return "SET_VALUE"
+	case "registry_delete_value":
+		return "DELETE_VALUE"
+	default:
+		// Query/Enumerate/Flush/KCB/Rundown/Virtualize/Close are
+		// bookkeeping noise for security analysis (the same subset
+		// Sysmon surfaces by default) - skip them here.
+		return ""
+	}
+}
+
+func normalizeNetworkAction(eventType string) string {
+	switch eventType {
+	case "network_connect":
+		return "TCP_CONNECT"
+	case "network_accept":
+		return "TCP_ACCEPT"
+	case "network_udp_send":
+		return "UDP_SEND"
+	case "network_udp_receive":
+		return "UDP_RECEIVE"
+	default:
+		return ""
+	}
+}
+
 func isInterestingPath(path string) bool {
 	if path == "" {
 		return false
@@ -107,28 +160,18 @@ func resolveFilePath(event analysis.Event, names map[uint64]string) string {
 	return ""
 }
 
-func readEvents(path string) (
-	map[uint64]*analysis.ProcessNode,
-	[]*analysis.Event,
-	*analysis.ProcessNode,
-	uint64,
-	map[uint64]uint64,
-	map[uint64]string,
-	error,
-) {
+func readEvents(path string) (*telemetry, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, nil, nil, 0, nil, nil, fmt.Errorf("open telemetry: %w", err)
+		return nil, fmt.Errorf("open telemetry: %w", err)
 	}
 	defer file.Close()
 
-	processes := make(map[uint64]*analysis.ProcessNode)
-	var fileEvents []*analysis.Event
-	var sample *analysis.ProcessNode
-	var lostEvents uint64
-
-	threadToProcess := make(map[uint64]uint64)
-	fileNames := make(map[uint64]string)
+	t := &telemetry{
+		Processes:       make(map[uint64]*analysis.ProcessNode),
+		FileNames:       make(map[uint64]string),
+		ThreadToProcess: make(map[uint64]uint64),
+	}
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
@@ -139,8 +182,8 @@ func readEvents(path string) (
 			continue
 		}
 
-		switch event.Type {
-		case "process_start":
+		switch {
+		case event.Type == "process_start":
 			node := &analysis.ProcessNode{
 				PID:     event.PID,
 				PPID:    event.PPID,
@@ -148,52 +191,68 @@ func readEvents(path string) (
 				Command: event.Command,
 				Time:    event.Time,
 			}
-			processes[event.PID] = node
+			t.Processes[event.PID] = node
 
-			if strings.EqualFold(event.Image, "sample.exe") && sample == nil {
-				sample = node
+			if strings.EqualFold(event.Image, "sample.exe") && t.Sample == nil {
+				t.Sample = node
 			}
 
-		case "thread_start", "thread_dc_start":
+		case event.Type == "thread_start" || event.Type == "thread_dc_start":
 			if event.ThreadID != 0 && event.PID != 0 {
-				threadToProcess[event.ThreadID] = event.PID
+				t.ThreadToProcess[event.ThreadID] = event.PID
 			}
 
-		case "etw_lost_events":
-			if event.LostEvents > lostEvents {
-				lostEvents = event.LostEvents
+		case event.Type == "etw_lost_events":
+			if event.LostEvents > t.LostEvents {
+				t.LostEvents = event.LostEvents
 			}
+
+		case strings.HasPrefix(event.Type, "network_"):
+			copyEvent := event
+			t.NetworkEvents = append(t.NetworkEvents, &copyEvent)
+
+		case strings.HasPrefix(event.Type, "registry_"):
+			copyEvent := event
+			t.RegistryEvents = append(t.RegistryEvents, &copyEvent)
+
+		case strings.HasPrefix(event.Type, "dns_"):
+			copyEvent := event
+			t.DNSEvents = append(t.DNSEvents, &copyEvent)
+
+		case strings.HasPrefix(event.Type, "image_"):
+			copyEvent := event
+			t.ImageEvents = append(t.ImageEvents, &copyEvent)
 
 		default:
 			if isInterestingPath(event.FileName) {
 				switch event.Type {
 				case "file_name", "file_create", "file_rundown", "file_create_init":
 					if event.FileObject != 0 {
-						fileNames[event.FileObject] = event.FileName
+						t.FileNames[event.FileObject] = event.FileName
 					}
 					if event.FileKey != 0 {
-						fileNames[event.FileKey] = event.FileName
+						t.FileNames[event.FileKey] = event.FileName
 					}
 				}
 			}
 
 			if normalizeFileAction(event.Type) != "" {
 				copyEvent := event
-				fileEvents = append(fileEvents, &copyEvent)
+				t.FileEvents = append(t.FileEvents, &copyEvent)
 			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, nil, nil, 0, nil, nil, fmt.Errorf("read telemetry: %w", err)
+		return nil, fmt.Errorf("read telemetry: %w", err)
 	}
 
 	// Resolve thread-based attribution only after all thread/process events
 	// have been read, so event ordering cannot make the mapping fail.
-	for _, event := range fileEvents {
+	for _, event := range t.FileEvents {
 		// Preferred attribution: FileIo TTID -> Thread event -> ProcessId.
 		if event.ThreadID != 0 {
-			if pid, ok := threadToProcess[event.ThreadID]; ok {
+			if pid, ok := t.ThreadToProcess[event.ThreadID]; ok {
 				event.PID = pid
 			}
 		}
@@ -206,15 +265,15 @@ func readEvents(path string) (
 
 		if event.FileName == "" {
 			if event.FileObject != 0 {
-				event.FileName = fileNames[event.FileObject]
+				event.FileName = t.FileNames[event.FileObject]
 			}
 			if event.FileName == "" && event.FileKey != 0 {
-				event.FileName = fileNames[event.FileKey]
+				event.FileName = t.FileNames[event.FileKey]
 			}
 		}
 	}
 
-	return processes, fileEvents, sample, lostEvents, threadToProcess, fileNames, nil
+	return t, nil
 }
 
 func buildProcessTree(processes map[uint64]*analysis.ProcessNode, sample *analysis.ProcessNode) []*analysis.ProcessNode {
@@ -306,10 +365,294 @@ func collectSampleFileActivity(
 	return result
 }
 
+func collectSampleNetworkActivity(
+	events []*analysis.Event,
+	relevantPIDs map[uint64]bool,
+	processes map[uint64]*analysis.ProcessNode,
+) []analysis.NetworkActivity {
+	activities := make(map[string]*analysis.NetworkActivity)
+
+	for _, event := range events {
+		if !relevantPIDs[event.PID] {
+			continue
+		}
+
+		action := normalizeNetworkAction(event.Type)
+		if action == "" {
+			continue
+		}
+
+		image := "unknown"
+		if process, ok := processes[event.PID]; ok {
+			image = process.Image
+		}
+
+		key := fmt.Sprintf("%s\x00%s\x00%d\x00%d", action, event.DestIP, event.DestPort, event.PID)
+		activity, ok := activities[key]
+		if !ok {
+			activity = &analysis.NetworkActivity{
+				Type:       action,
+				Protocol:   event.Protocol,
+				PID:        event.PID,
+				Image:      image,
+				SourceIP:   event.SourceIP,
+				SourcePort: event.SourcePort,
+				DestIP:     event.DestIP,
+				DestPort:   event.DestPort,
+			}
+			activities[key] = activity
+		}
+		activity.Count++
+	}
+
+	result := make([]analysis.NetworkActivity, 0, len(activities))
+	for _, activity := range activities {
+		result = append(result, *activity)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Type != result[j].Type {
+			return result[i].Type < result[j].Type
+		}
+		if result[i].DestIP != result[j].DestIP {
+			return result[i].DestIP < result[j].DestIP
+		}
+		return result[i].DestPort < result[j].DestPort
+	})
+
+	return result
+}
+
+func collectSampleRegistryActivity(
+	events []*analysis.Event,
+	relevantPIDs map[uint64]bool,
+	processes map[uint64]*analysis.ProcessNode,
+) []analysis.RegistryActivity {
+	activities := make(map[string]*analysis.RegistryActivity)
+
+	for _, event := range events {
+		if !relevantPIDs[event.PID] {
+			continue
+		}
+
+		action := normalizeRegistryAction(event.Type)
+		if action == "" || event.RegistryKey == "" {
+			continue
+		}
+
+		image := "unknown"
+		if process, ok := processes[event.PID]; ok {
+			image = process.Image
+		}
+
+		key := fmt.Sprintf("%s\x00%s\x00%d", action, event.RegistryKey, event.PID)
+		activity, ok := activities[key]
+		if !ok {
+			activity = &analysis.RegistryActivity{
+				Action: action,
+				Key:    event.RegistryKey,
+				PID:    event.PID,
+				Image:  image,
+			}
+			activities[key] = activity
+		}
+		activity.Count++
+	}
+
+	result := make([]analysis.RegistryActivity, 0, len(activities))
+	for _, activity := range activities {
+		result = append(result, *activity)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Action != result[j].Action {
+			return result[i].Action < result[j].Action
+		}
+		return result[i].Key < result[j].Key
+	})
+
+	return result
+}
+
+func collectSampleDNSActivity(
+	events []*analysis.Event,
+	relevantPIDs map[uint64]bool,
+	processes map[uint64]*analysis.ProcessNode,
+) []analysis.DNSActivity {
+	activities := make(map[string]*analysis.DNSActivity)
+
+	for _, event := range events {
+		if !relevantPIDs[event.PID] || event.DNSQueryName == "" {
+			continue
+		}
+
+		image := "unknown"
+		if process, ok := processes[event.PID]; ok {
+			image = process.Image
+		}
+
+		key := fmt.Sprintf("%s\x00%d", event.DNSQueryName, event.PID)
+		activity, ok := activities[key]
+		if !ok {
+			activity = &analysis.DNSActivity{
+				QueryName: event.DNSQueryName,
+				PID:       event.PID,
+				Image:     image,
+			}
+			activities[key] = activity
+		}
+		activity.Count++
+
+		for _, resolvedIP := range event.DNSResults {
+			exists := false
+			for _, existing := range activity.Results {
+				if existing == resolvedIP {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				activity.Results = append(activity.Results, resolvedIP)
+			}
+		}
+	}
+
+	result := make([]analysis.DNSActivity, 0, len(activities))
+	for _, activity := range activities {
+		result = append(result, *activity)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].QueryName < result[j].QueryName
+	})
+
+	return result
+}
+
+func collectSampleImageActivity(
+	events []*analysis.Event,
+	relevantPIDs map[uint64]bool,
+	processes map[uint64]*analysis.ProcessNode,
+) []analysis.ImageActivity {
+	activities := make(map[string]*analysis.ImageActivity)
+
+	for _, event := range events {
+		if !relevantPIDs[event.PID] || event.Image == "" {
+			continue
+		}
+
+		// Skip the trace-start/trace-end rundown of every image already
+		// loaded system-wide; that's not activity performed by the
+		// sample, just Windows enumerating what's already resident.
+		if event.Type == "image_dc_start" || event.Type == "image_dc_end" {
+			continue
+		}
+
+		procImage := "unknown"
+		if process, ok := processes[event.PID]; ok {
+			procImage = process.Image
+		}
+
+		key := fmt.Sprintf("%s\x00%d", event.Image, event.PID)
+		activity, ok := activities[key]
+		if !ok {
+			activity = &analysis.ImageActivity{
+				Path:          event.Image,
+				PID:           event.PID,
+				Image:         procImage,
+				ImageChecksum: event.ImageChecksum,
+			}
+			activities[key] = activity
+		}
+		activity.Count++
+	}
+
+	result := make([]analysis.ImageActivity, 0, len(activities))
+	for _, activity := range activities {
+		result = append(result, *activity)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Path < result[j].Path
+	})
+
+	return result
+}
+
 func markDescendants(root *analysis.ProcessNode, relevant map[uint64]bool) {
 	relevant[root.PID] = true
 	for _, child := range root.Children {
 		markDescendants(child, relevant)
+	}
+}
+
+func printFileActivity(activities []analysis.FileActivity) {
+	if len(activities) == 0 {
+		fmt.Println("No relevant file activity attributed to the sample process tree")
+		return
+	}
+
+	for _, activity := range activities {
+		if activity.Action == "WRITE" && activity.Bytes > 0 {
+			fmt.Printf("%s x%d | PID=%d | %s | %s | bytes=%d\n",
+				activity.Action, activity.Count, activity.PID, activity.Image, activity.Path, activity.Bytes)
+		} else {
+			fmt.Printf("%s x%d | PID=%d | %s | %s\n",
+				activity.Action, activity.Count, activity.PID, activity.Image, activity.Path)
+		}
+	}
+}
+
+func printNetworkActivity(activities []analysis.NetworkActivity) {
+	if len(activities) == 0 {
+		fmt.Println("No relevant network activity attributed to the sample process tree")
+		return
+	}
+
+	for _, activity := range activities {
+		fmt.Printf("%s x%d | PID=%d | %s | %s:%d -> %s:%d\n",
+			activity.Type, activity.Count, activity.PID, activity.Image,
+			activity.SourceIP, activity.SourcePort, activity.DestIP, activity.DestPort)
+	}
+}
+
+func printRegistryActivity(activities []analysis.RegistryActivity) {
+	if len(activities) == 0 {
+		fmt.Println("No relevant registry activity attributed to the sample process tree")
+		return
+	}
+
+	for _, activity := range activities {
+		fmt.Printf("%s x%d | PID=%d | %s | %s\n",
+			activity.Action, activity.Count, activity.PID, activity.Image, activity.Key)
+	}
+}
+
+func printDNSActivity(activities []analysis.DNSActivity) {
+	if len(activities) == 0 {
+		fmt.Println("No relevant DNS activity attributed to the sample process tree")
+		return
+	}
+
+	for _, activity := range activities {
+		results := "no response captured"
+		if len(activity.Results) > 0 {
+			results = strings.Join(activity.Results, ", ")
+		}
+		fmt.Printf("QUERY x%d | PID=%d | %s | %s -> %s\n",
+			activity.Count, activity.PID, activity.Image, activity.QueryName, results)
+	}
+}
+
+func printImageActivity(activities []analysis.ImageActivity) {
+	if len(activities) == 0 {
+		fmt.Println("No relevant image/DLL loads attributed to the sample process tree")
+		return
+	}
+
+	for _, activity := range activities {
+		fmt.Printf("LOAD x%d | PID=%d | %s | %s\n",
+			activity.Count, activity.PID, activity.Image, activity.Path)
 	}
 }
 
@@ -322,28 +665,38 @@ func analyzeEvents(path string, streamServer *stream.Server) error {
 		},
 	})
 
-	processes, fileEvents, sample, lostEvents, _, fileNames, err := readEvents(path)
+	t, err := readEvents(path)
 	if err != nil {
 		return err
 	}
 
-	if sample == nil {
+	if t.Sample == nil {
 		fmt.Println("No sample.exe process found")
 		return nil
 	}
 
-	chain := buildProcessTree(processes, sample)
+	chain := buildProcessTree(t.Processes, t.Sample)
 	if len(chain) == 0 {
 		fmt.Println("No process tree found")
 		return nil
 	}
 
 	relevantPIDs := make(map[uint64]bool)
-	markDescendants(sample, relevantPIDs)
+	markDescendants(t.Sample, relevantPIDs)
 
-	activities := collectSampleFileActivity(fileEvents, relevantPIDs, processes, fileNames)
+	fileActivities := collectSampleFileActivity(t.FileEvents, relevantPIDs, t.Processes, t.FileNames)
+	networkActivities := collectSampleNetworkActivity(t.NetworkEvents, relevantPIDs, t.Processes)
+	registryActivities := collectSampleRegistryActivity(t.RegistryEvents, relevantPIDs, t.Processes)
+	dnsActivities := collectSampleDNSActivity(t.DNSEvents, relevantPIDs, t.Processes)
+	imageActivities := collectSampleImageActivity(t.ImageEvents, relevantPIDs, t.Processes)
 
-	iocResult := ioc.Extract(activities, processes, relevantPIDs, sample)
+	iocResult := ioc.Extract(ioc.Activities{
+		Files:    fileActivities,
+		Network:  networkActivities,
+		Registry: registryActivities,
+		DNS:      dnsActivities,
+		Images:   imageActivities,
+	}, t.Processes, relevantPIDs, t.Sample)
 
 	mitreDB, err := mitre.LoadDatabase(`data\mitre-data\enterprise-attack.json`)
 	if err != nil {
@@ -371,11 +724,19 @@ func analyzeEvents(path string, streamServer *stream.Server) error {
 		Data: threatScore,
 	})
 
+	streamServer.Broadcast(stream.Event{Type: "network_activity", Data: networkActivities})
+	streamServer.Broadcast(stream.Event{Type: "registry_activity", Data: registryActivities})
+	streamServer.Broadcast(stream.Event{Type: "dns_activity", Data: dnsActivities})
+	streamServer.Broadcast(stream.Event{Type: "image_activity", Data: imageActivities})
 
 	output := mitre.AnalysisOutput{
 		Sample:      iocResult.Sample,
 		Files:       iocResult.Files,
 		Processes:   iocResult.Processes,
+		Network:     iocResult.Network,
+		Registry:    iocResult.Registry,
+		DNS:         iocResult.DNS,
+		Images:      iocResult.Images,
 		Techniques:  techniques,
 		ThreatScore: threatScore,
 	}
@@ -392,38 +753,27 @@ func analyzeEvents(path string, streamServer *stream.Server) error {
 
 	fmt.Println(string(jsonData))
 	fmt.Println("ANALYSIS")
-	fmt.Printf("Target: %s (PID=%d)\n", sample.Image, sample.PID)
+	fmt.Printf("Target: %s (PID=%d)\n", t.Sample.Image, t.Sample.PID)
 
 	fmt.Println("\nPROCESS TREE")
 	printProcessPath(chain)
 
 	fmt.Println("\nFILE ACTIVITY")
-	if len(activities) == 0 {
-		fmt.Println("No relevant file activity attributed to the sample process tree")
-	} else {
-		for _, activity := range activities {
-			if activity.Action == "WRITE" && activity.Bytes > 0 {
-				fmt.Printf("%s x%d | PID=%d | %s | %s | bytes=%d\n",
-					activity.Action,
-					activity.Count,
-					activity.PID,
-					activity.Image,
-					activity.Path,
-					activity.Bytes,
-				)
-			} else {
-				fmt.Printf("%s x%d | PID=%d | %s | %s\n",
-					activity.Action,
-					activity.Count,
-					activity.PID,
-					activity.Image,
-					activity.Path,
-				)
-			}
-		}
-	}
+	printFileActivity(fileActivities)
 
-	fmt.Printf("\nTELEMETRY LOST: %d\n", lostEvents)
+	fmt.Println("\nNETWORK ACTIVITY")
+	printNetworkActivity(networkActivities)
+
+	fmt.Println("\nREGISTRY ACTIVITY")
+	printRegistryActivity(registryActivities)
+
+	fmt.Println("\nDNS ACTIVITY")
+	printDNSActivity(dnsActivities)
+
+	fmt.Println("\nIMAGE LOAD ACTIVITY")
+	printImageActivity(imageActivities)
+
+	fmt.Printf("\nTELEMETRY LOST: %d\n", t.LostEvents)
 	return nil
 }
 
