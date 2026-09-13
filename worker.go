@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -112,8 +113,8 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		)
 		UPDATE jobs
 		SET status = 'running',
-			attempt_count = attempt_count + 1,
-			updated_at = NOW()
+		    attempt_count = attempt_count + 1,
+		    updated_at = NOW()
 		FROM next_job
 		WHERE jobs.job_id = next_job.job_id
 		RETURNING jobs.job_id`,
@@ -130,7 +131,6 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 
 	log.Printf("Claimed job: %s", jobID)
 
-	// Get job
 	job, err := GetJob(db, jobID)
 	if err != nil {
 		return FailRunningJob(
@@ -140,7 +140,6 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		)
 	}
 
-	// Get sample
 	sample, err := GetSample(db, job.FileID)
 	if err != nil {
 		return FailRunningJob(
@@ -150,14 +149,14 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		)
 	}
 
-	// Create analysis result
-	analysisResult := storage.AnalysisResult{
+	analysisRow := storage.AnalysisResult{
 		JobID:    jobID,
 		SampleID: sample.SampleID,
 		Status:   "pending",
 	}
 
-	if err := CreateAnalysisResult(db, analysisResult); err != nil {
+	analysisResultID, err := CreateAnalysisResult(db, analysisRow)
+	if err != nil {
 		return FailRunningJob(
 			db,
 			jobID,
@@ -165,31 +164,6 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		)
 	}
 
-	// Get the analysis result we just created
-	var analysisResultID string
-
-	err = db.QueryRow(
-		context.Background(),
-		`SELECT result_id
-		 FROM analysis_results
-		 WHERE job_id = $1
-		   AND sample_id = $2
-		   AND status = 'pending'
-		 ORDER BY result_id DESC
-		 LIMIT 1`,
-		jobID,
-		sample.SampleID,
-	).Scan(&analysisResultID)
-
-	if err != nil {
-		return FailRunningJob(
-			db,
-			jobID,
-			fmt.Errorf("failed to get analysis result: %w", err),
-		)
-	}
-
-	// Analysis starts
 	if err := UpdateAnalysisResultStatus(
 		db,
 		analysisResultID,
@@ -202,14 +176,16 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		)
 	}
 
-	// =====================================================
-	// ACTUAL MALWARE ANALYSIS WILL GO HERE
-	// =====================================================
-
-	result, err := ProcessSample(sample, jobID)
-
+	// Keep the existing metadata-processing step.
+	legacyResult, err := ProcessSample(sample, jobID)
 	if err != nil {
-		// Analysis failed
+		_ = UpdateAnalysisResultStatus(db, analysisResultID, "failed")
+		return FailRunningJob(db, jobID, err)
+	}
+
+	// Run the existing analysis pipeline.
+	analysisOutput, err := RunAnalysisForJob(sample, jobID)
+	if err != nil {
 		if analysisErr := UpdateAnalysisResultStatus(
 			db,
 			analysisResultID,
@@ -224,12 +200,51 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		return FailRunningJob(db, jobID, err)
 	}
 
-	// =====================================================
-	// TEMPORARY:
-	// Keep the old Stage 10 result for now.
-	// =====================================================
+	analysisData, err := json.Marshal(analysisOutput)
+	if err != nil {
+		if analysisErr := UpdateAnalysisResultStatus(
+			db,
+			analysisResultID,
+			"failed",
+		); analysisErr != nil {
+			log.Printf(
+				"Failed to mark analysis result as failed: %v",
+				analysisErr,
+			)
+		}
 
-	if err := CreateResult(db, result); err != nil {
+		return FailRunningJob(
+			db,
+			jobID,
+			fmt.Errorf("failed to marshal analysis output: %w", err),
+		)
+	}
+
+	if err := SaveAnalysisResultData(
+		db,
+		analysisResultID,
+		analysisData,
+	); err != nil {
+		if analysisErr := UpdateAnalysisResultStatus(
+			db,
+			analysisResultID,
+			"failed",
+		); analysisErr != nil {
+			log.Printf(
+				"Failed to mark analysis result as failed: %v",
+				analysisErr,
+			)
+		}
+
+		return FailRunningJob(
+			db,
+			jobID,
+			fmt.Errorf("failed to save analysis result: %w", err),
+		)
+	}
+
+	// Preserve the existing lightweight result row.
+	if err := CreateResult(db, legacyResult); err != nil {
 		if analysisErr := UpdateAnalysisResultStatus(
 			db,
 			analysisResultID,
@@ -248,7 +263,6 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		)
 	}
 
-	// Analysis succeeded
 	if err := UpdateAnalysisResultStatus(
 		db,
 		analysisResultID,
@@ -257,7 +271,6 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		return err
 	}
 
-	// Job succeeded
 	if err := UpdateStatus(db, jobID, "completed"); err != nil {
 		return err
 	}

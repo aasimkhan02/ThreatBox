@@ -6,16 +6,21 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/aasimkhan02/ThreatBox/internal/storage"
 )
 
-func GetMultipleJobsHandler(w http.ResponseWriter, r *http.Request, db *pgxpool.Pool) {
+func GetMultipleJobsHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+	db *pgxpool.Pool,
+) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	jobs, err := GetMultipleJobs(db)
-
 	if err != nil {
 		http.Error(w, "Failed to fetch jobs", http.StatusInternalServerError)
 		return
@@ -23,20 +28,28 @@ func GetMultipleJobsHandler(w http.ResponseWriter, r *http.Request, db *pgxpool.
 
 	w.Header().Set("Content-Type", "application/json")
 
-	err = json.NewEncoder(w).Encode(jobs)
-	if err != nil {
+	if err := json.NewEncoder(w).Encode(jobs); err != nil {
 		return
 	}
 }
 
-func GetJobHandler(w http.ResponseWriter, r *http.Request, db *pgxpool.Pool, jobID string) {
+type jobDetailsResponse struct {
+	storage.Job
+	AnalysisResult *storage.AnalysisResult `json:"analysis_result,omitempty"`
+}
+
+func GetJobHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+	db *pgxpool.Pool,
+	jobID string,
+) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	job, err := GetJob(db, jobID)
-
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			http.Error(w, "Job not found", http.StatusNotFound)
@@ -47,16 +60,31 @@ func GetJobHandler(w http.ResponseWriter, r *http.Request, db *pgxpool.Pool, job
 		return
 	}
 
+	response := jobDetailsResponse{
+		Job: job,
+	}
+
+	analysisResult, err := GetAnalysisResultByJobID(db, jobID)
+	if err == nil {
+		response.AnalysisResult = &analysisResult
+	} else if err != pgx.ErrNoRows {
+		http.Error(w, "Failed to fetch analysis result", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 
-	err = json.NewEncoder(w).Encode(job)
-
-	if err != nil {
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		return
 	}
 }
 
-func UpdateStatusHandler(w http.ResponseWriter, r *http.Request, db *pgxpool.Pool, jobID string) {
+func UpdateStatusHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+	db *pgxpool.Pool,
+	jobID string,
+) {
 	if r.Method != http.MethodPatch {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -68,8 +96,7 @@ func UpdateStatusHandler(w http.ResponseWriter, r *http.Request, db *pgxpool.Poo
 
 	var req UpdateStatusRequest
 
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -79,8 +106,7 @@ func UpdateStatusHandler(w http.ResponseWriter, r *http.Request, db *pgxpool.Poo
 		return
 	}
 
-	err = UpdateStatus(db, jobID, req.Status)
-	if err != nil {
+	if err := UpdateStatus(db, jobID, req.Status); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -88,13 +114,11 @@ func UpdateStatusHandler(w http.ResponseWriter, r *http.Request, db *pgxpool.Poo
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
-	err = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"message": "Job status updated successfully",
 		"job_id":  jobID,
 		"status":  req.Status,
-	})
-
-	if err != nil {
+	}); err != nil {
 		return
 	}
 }

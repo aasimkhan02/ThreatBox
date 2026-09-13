@@ -2,14 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/aasimkhan02/ThreatBox/internal/storage"
 )
 
 func ValidTransition(currentStatus string, newStatus string) bool {
-
 	switch currentStatus {
 	case "pending":
 		return newStatus == "running"
@@ -30,31 +31,26 @@ func ValidTransition(currentStatus string, newStatus string) bool {
 }
 
 func UpdateStatus(db *pgxpool.Pool, jobID string, status string) error {
-
 	job, err := GetJob(db, jobID)
-
 	if err != nil {
 		return err
 	}
 
-	allowed := ValidTransition(job.Status, status)
-
-	if allowed == false {
+	if !ValidTransition(job.Status, status) {
 		return fmt.Errorf("invalid status transition: %s -> %s", job.Status, status)
 	}
 
 	result, err := db.Exec(
 		context.Background(),
-		`UPDATE jobs 
-		SET status = $1, 
-			updated_at = NOW() 
-		WHERE job_id = $2
-		AND status = $3`,
+		`UPDATE jobs
+		 SET status = $1,
+		     updated_at = NOW()
+		 WHERE job_id = $2
+		   AND status = $3`,
 		status,
 		jobID,
 		job.Status,
 	)
-
 	if err != nil {
 		return err
 	}
@@ -72,8 +68,8 @@ func GetJob(db *pgxpool.Pool, jobID string) (storage.Job, error) {
 	err := db.QueryRow(
 		context.Background(),
 		`SELECT job_id, file_id, type, status, attempt_count, error_message, created_at, updated_at
-		FROM jobs
-		WHERE job_id = $1`,
+		 FROM jobs
+		 WHERE job_id = $1`,
 		jobID,
 	).Scan(
 		&job.JobID,
@@ -97,10 +93,9 @@ func GetMultipleJobs(db *pgxpool.Pool) ([]storage.Job, error) {
 	rows, err := db.Query(
 		context.Background(),
 		`SELECT job_id, file_id, type, status, attempt_count, error_message, created_at, updated_at
-		FROM Jobs
-		ORDER BY created_at DESC`,
+		 FROM jobs
+		 ORDER BY created_at DESC`,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +116,6 @@ func GetMultipleJobs(db *pgxpool.Pool) ([]storage.Job, error) {
 			&job.CreatedAt,
 			&job.UpdatedAt,
 		)
-
 		if err != nil {
 			return nil, err
 		}
@@ -155,4 +149,59 @@ func CreateResult(db *pgxpool.Pool, result storage.Result) error {
 	)
 
 	return err
+}
+
+func SaveAnalysisResultData(
+	db *pgxpool.Pool,
+	resultID string,
+	data json.RawMessage,
+) error {
+	_, err := db.Exec(
+		context.Background(),
+		`UPDATE analysis_results
+		 SET result_data = $1
+		 WHERE result_id = $2`,
+		[]byte(data),
+		resultID,
+	)
+
+	return err
+}
+
+func GetAnalysisResultByJobID(
+	db *pgxpool.Pool,
+	jobID string,
+) (storage.AnalysisResult, error) {
+	var result storage.AnalysisResult
+
+	err := db.QueryRow(
+		context.Background(),
+		`SELECT
+			result_id,
+			job_id,
+			sample_id,
+			started_at,
+			completed_at,
+			status,
+			result_data
+		 FROM analysis_results
+		 WHERE job_id = $1
+		 ORDER BY completed_at DESC NULLS LAST, started_at DESC NULLS LAST
+		 LIMIT 1`,
+		jobID,
+	).Scan(
+		&result.ResultID,
+		&result.JobID,
+		&result.SampleID,
+		&result.StartedAt,
+		&result.CompletedAt,
+		&result.Status,
+		&result.ResultData,
+	)
+
+	if err != nil {
+		return storage.AnalysisResult{}, err
+	}
+
+	return result, nil
 }

@@ -36,6 +36,7 @@ func Migrate(pool *pgxpool.Pool) error {
 		"migrations/004_add_job_error.sql",
 		"migrations/005_job_attempts.sql",
 		"migrations/006_create_analysis_results.sql",
+		"migrations/007_add_analysis_result_data.sql",
 }
 
 	for _, path := range migrations {

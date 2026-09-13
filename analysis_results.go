@@ -9,7 +9,7 @@ import (
 	"github.com/aasimkhan02/ThreatBox/internal/storage"
 )
 
-func ValidAnalysisResultTransition(currentStatus string, newStatus string) bool {
+func ValidAnalysisResultTransition(currentStatus, newStatus string) bool {
 	switch currentStatus {
 	case "pending":
 		return newStatus == "running"
@@ -17,10 +17,7 @@ func ValidAnalysisResultTransition(currentStatus string, newStatus string) bool 
 	case "running":
 		return newStatus == "completed" || newStatus == "failed"
 
-	case "completed":
-		return false
-
-	case "failed":
+	case "completed", "failed":
 		return false
 
 	default:
@@ -31,9 +28,10 @@ func ValidAnalysisResultTransition(currentStatus string, newStatus string) bool 
 func CreateAnalysisResult(
 	db *pgxpool.Pool,
 	result storage.AnalysisResult,
-) error {
+) (string, error) {
+	var resultID string
 
-	_, err := db.Exec(
+	err := db.QueryRow(
 		context.Background(),
 		`INSERT INTO analysis_results (
 			job_id,
@@ -42,15 +40,20 @@ func CreateAnalysisResult(
 			completed_at,
 			status
 		)
-		VALUES ($1, $2, $3, $4, $5)`,
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING result_id`,
 		result.JobID,
 		result.SampleID,
 		result.StartedAt,
 		result.CompletedAt,
 		result.Status,
-	)
+	).Scan(&resultID)
 
-	return err
+	if err != nil {
+		return "", err
+	}
+
+	return resultID, nil
 }
 
 func UpdateAnalysisResultStatus(
@@ -58,7 +61,6 @@ func UpdateAnalysisResultStatus(
 	resultID string,
 	status string,
 ) error {
-
 	var currentStatus string
 
 	err := db.QueryRow(
@@ -68,7 +70,6 @@ func UpdateAnalysisResultStatus(
 		 WHERE result_id = $1`,
 		resultID,
 	).Scan(&currentStatus)
-
 	if err != nil {
 		return err
 	}
@@ -81,89 +82,49 @@ func UpdateAnalysisResultStatus(
 		)
 	}
 
-	switch status {
+	var query string
+	var args []interface{}
 
+	switch status {
 	case "running":
-		_, err = db.Exec(
-			context.Background(),
-			`UPDATE analysis_results
-			 SET status = 'running',
-			     started_at = NOW()
-			 WHERE result_id = $1
-			   AND status = $2`,
-			resultID,
-			currentStatus,
-		)
+		query = `
+			UPDATE analysis_results
+			SET status = 'running',
+			    started_at = NOW()
+			WHERE result_id = $1
+			  AND status = $2`
+		args = []interface{}{resultID, currentStatus}
 
 	case "completed":
-		_, err = db.Exec(
-			context.Background(),
-			`UPDATE analysis_results
-			 SET status = 'completed',
-			     completed_at = NOW()
-			 WHERE result_id = $1
-			   AND status = $2`,
-			resultID,
-			currentStatus,
-		)
+		query = `
+			UPDATE analysis_results
+			SET status = 'completed',
+			    completed_at = NOW()
+			WHERE result_id = $1
+			  AND status = $2`
+		args = []interface{}{resultID, currentStatus}
 
 	case "failed":
-		_, err = db.Exec(
-			context.Background(),
-			`UPDATE analysis_results
-			 SET status = 'failed',
-			     completed_at = NOW()
-			 WHERE result_id = $1
-			   AND status = $2`,
-			resultID,
-			currentStatus,
-		)
+		query = `
+			UPDATE analysis_results
+			SET status = 'failed',
+			    completed_at = NOW()
+			WHERE result_id = $1
+			  AND status = $2`
+		args = []interface{}{resultID, currentStatus}
 
 	default:
-		return fmt.Errorf(
-			"unsupported analysis result status: %s",
-			status,
-		)
+		return fmt.Errorf("unsupported analysis result status: %s", status)
 	}
 
+	result, err := db.Exec(context.Background(), query, args...)
 	if err != nil {
 		return err
 	}
 
-	return nil
-}
-
-func GetAnalysisResult(
-	db *pgxpool.Pool,
-	resultID string,
-) (storage.AnalysisResult, error) {
-
-	var result storage.AnalysisResult
-
-	err := db.QueryRow(
-		context.Background(),
-		`SELECT
-			result_id,
-			job_id,
-			sample_id,
-			started_at,
-			completed_at,
-			status
-		 FROM analysis_results
-		 WHERE result_id = $1`,
-		resultID,
-	).Scan(
-		&result.ResultID,
-		&result.JobID,
-		&result.SampleID,
-		&result.StartedAt,
-		&result.CompletedAt,
-		&result.Status,
-	)
-
-	if err != nil {
-		return storage.AnalysisResult{}, err
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("analysis result changed concurrently")
 	}
 
-	return result, nil
+	return nil
 }
