@@ -744,38 +744,71 @@ func Analyze(path string, streamServer *stream.Server) (mitre.AnalysisOutput, er
 		ThreatScore: threatScore,
 	}
 
-	jsonData, err := json.MarshalIndent(output, "", "  ")
-	if err != nil {
-		return mitre.AnalysisOutput{}, fmt.Errorf("marshal analysis result: %w", err)
-	}
-
-	broadcast(streamServer, stream.Event{
+		broadcast(streamServer, stream.Event{
 		Type: "analysis_completed",
 		Data: output,
 	})
 
-	fmt.Println(string(jsonData))
-	fmt.Println("ANALYSIS")
-	fmt.Printf("Target: %s (PID=%d)\n", t.Sample.Image, t.Sample.PID)
+	fmt.Println()
+	fmt.Println("========== THREATBOX ANALYSIS ==========")
+	fmt.Printf("Sample   : %s\n", t.Sample.Image)
+	fmt.Printf("PID      : %d\n", t.Sample.PID)
+	fmt.Printf("Risk     : %s (%d/100)\n", threatScore.Severity, threatScore.Score)
 
-	fmt.Println("\nPROCESS TREE")
-	printProcessPath(chain)
+	fmt.Println()
+	fmt.Println("TECHNIQUES")
 
-	fmt.Println("\nFILE ACTIVITY")
-	printFileActivity(fileActivities)
+	if len(techniques) == 0 {
+		fmt.Println("  None detected")
+	} else {
+		for _, technique := range techniques {
+			fmt.Printf(
+				"  • %s — %s\n",
+				technique.TechniqueID,
+				technique.Name,
+			)
+		}
+	}
 
-	fmt.Println("\nNETWORK ACTIVITY")
-	printNetworkActivity(networkActivities)
+	fmt.Println()
+	fmt.Println("BEHAVIOR")
 
-	fmt.Println("\nREGISTRY ACTIVITY")
-	printRegistryActivity(registryActivities)
+	if len(fileActivities) == 0 &&
+		len(networkActivities) == 0 &&
+		len(dnsActivities) == 0 &&
+		len(imageActivities) == 0 {
+		fmt.Println("  No notable behavior detected")
+	} else {
+		if len(fileActivities) > 0 {
+			fmt.Printf("  • File activity: %d unique actions\n", len(fileActivities))
+		}
 
-	fmt.Println("\nDNS ACTIVITY")
-	printDNSActivity(dnsActivities)
+		if len(networkActivities) > 0 {
+			fmt.Printf("  • Network activity: %d connections\n", len(networkActivities))
+		}
 
-	fmt.Println("\nIMAGE LOAD ACTIVITY")
-	printImageActivity(imageActivities)
+		if len(dnsActivities) > 0 {
+			fmt.Printf("  • DNS activity: %d queries\n", len(dnsActivities))
+		}
 
-	fmt.Printf("\nTELEMETRY LOST: %d\n", t.LostEvents)
+		if len(imageActivities) > 0 {
+			fmt.Printf("  • Image/DLL activity: %d modules\n", len(imageActivities))
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("SCORE REASONS")
+
+	if len(threatScore.Reasons) == 0 {
+		fmt.Println("  None")
+	} else {
+		for _, reason := range threatScore.Reasons {
+			fmt.Printf("  • %s\n", reason)
+		}
+	}
+
+	fmt.Printf("\nTelemetry lost: %d\n", t.LostEvents)
+	fmt.Println("========================================")
+
 	return output, nil
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,7 +10,7 @@ import (
 )
 
 func main() {
-	path := `C:\ThreatBox\output\events.jsonl`
+	path := `C:\ThreatBox\runtime\output\events.jsonl`
 
 	if len(os.Args) > 1 {
 		path = os.Args[1]
@@ -32,19 +31,10 @@ func main() {
 
 	fmt.Scanln()
 
-	output, err := engine.Analyze(path, streamServer)
-	if err != nil {
+	if _, err := engine.Analyze(path, streamServer); err != nil {
 		fmt.Println("Analyzer error:", err)
 		os.Exit(1)
 	}
-
-	jsonData, err := json.MarshalIndent(output, "", "  ")
-	if err != nil {
-		fmt.Println("Analyzer output error:", err)
-		os.Exit(1)
-	}
-
-	fmt.Println(string(jsonData))
 
 	select {}
 }

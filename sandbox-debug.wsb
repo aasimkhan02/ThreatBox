@@ -24,6 +24,6 @@
     </MappedFolders>
 
     <LogonCommand>
-        <Command>cmd.exe /c start "" C:\ThreatBox\tools\etw-collector.exe &amp; C:\ThreatBox\tools\wait-for-sample.bat</Command>
+        <Command>cmd.exe /c start "" C:\ThreatBox\tools\etw-collector.exe &amp; call C:\ThreatBox\tools\wait-ready.bat &amp; C:\ThreatBox\sample\sample.exe &amp; taskkill /IM etw-collector.exe /F /T &gt;nul 2&gt;&amp;1 &amp; echo done&gt;C:\ThreatBox\output\analysis.done &amp; shutdown /s /t 0 /f</Command>
     </LogonCommand>
 </Configuration>

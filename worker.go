@@ -39,41 +39,11 @@ func StartWorker(db *pgxpool.Pool) error {
 	}
 }
 
-const MaxAttempts = 3
+// Retries are disabled during testing.
+// const MaxAttempts = 3
 
 func FailRunningJob(db *pgxpool.Pool, jobID string, cause error) error {
-	job, err := GetJob(db, jobID)
-	if err != nil {
-		return fmt.Errorf("failed to get job for retry: %w", err)
-	}
-
-	if job.JobAttempts < MaxAttempts {
-		_, err := db.Exec(
-			context.Background(),
-			`UPDATE jobs
-			 SET status = 'pending',
-			     error_message = $1,
-			     updated_at = NOW()
-			 WHERE job_id = $2
-			   AND status = 'running'`,
-			cause.Error(),
-			jobID,
-		)
-
-		if err != nil {
-			return fmt.Errorf("failed to retry job: %w", err)
-		}
-
-		log.Printf(
-			"Job %s failed on attempt %d, retrying",
-			jobID,
-			job.JobAttempts,
-		)
-
-		return nil
-	}
-
-	_, err = db.Exec(
+	_, err := db.Exec(
 		context.Background(),
 		`UPDATE jobs
 		 SET status = 'failed',
@@ -86,13 +56,13 @@ func FailRunningJob(db *pgxpool.Pool, jobID string, cause error) error {
 	)
 
 	if err != nil {
-		return fmt.Errorf("failed to permanently fail job: %w", err)
+		return fmt.Errorf("failed to mark job as failed: %w", err)
 	}
 
 	log.Printf(
-		"Job %s permanently failed after %d attempts",
+		"Job %s FAILED: %v",
 		jobID,
-		job.JobAttempts,
+		cause,
 	)
 
 	return cause
@@ -176,14 +146,19 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		)
 	}
 
-	// Keep the existing metadata-processing step.
+	// Existing metadata-processing step.
 	legacyResult, err := ProcessSample(sample, jobID)
 	if err != nil {
-		_ = UpdateAnalysisResultStatus(db, analysisResultID, "failed")
+		_ = UpdateAnalysisResultStatus(
+			db,
+			analysisResultID,
+			"failed",
+		)
+
 		return FailRunningJob(db, jobID, err)
 	}
 
-	// Run the existing analysis pipeline.
+	// Main analysis pipeline.
 	analysisOutput, err := RunAnalysisForJob(sample, jobID)
 	if err != nil {
 		if analysisErr := UpdateAnalysisResultStatus(
@@ -197,7 +172,11 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 			)
 		}
 
-		return FailRunningJob(db, jobID, err)
+		return FailRunningJob(
+			db,
+			jobID,
+			fmt.Errorf("analysis pipeline failed: %w", err),
+		)
 	}
 
 	analysisData, err := json.Marshal(analysisOutput)
