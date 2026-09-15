@@ -25,8 +25,9 @@ type FileIOC struct {
 }
 
 type ProcessIOC struct {
-	Name string `json:"name"`
-	PID  uint64 `json:"pid"`
+	Name    string `json:"name"`
+	PID     uint64 `json:"pid"`
+	Command string `json:"command,omitempty"`
 }
 
 type NetworkIOC struct {
@@ -168,7 +169,6 @@ func Extract(
 		})
 	}
 
-
 	for pid, process := range processes {
 
 		if !relevantPIDs[pid] {
@@ -176,8 +176,114 @@ func Extract(
 		}
 
 		result.Processes = append(result.Processes, ProcessIOC{
-			Name: process.Image,
-			PID:  process.PID,
+			Name:    process.Image,
+			PID:     process.PID,
+			Command: process.Command,
+		})
+	}
+
+	return result
+}
+
+// ExtractRelevant is the instance-aware variant used by the engine.
+// The engine resolves process lifetime before calling it, preventing a
+// reused PID from contaminating the sample's process IOC set.
+func ExtractRelevant(
+	activities Activities,
+	processes []*analysis.ProcessNode,
+	relevantProcesses map[*analysis.ProcessNode]bool,
+	sample *analysis.ProcessNode,
+) IOCResult {
+	result := IOCResult{
+		Files:     make([]FileIOC, 0),
+		Processes: make([]ProcessIOC, 0),
+		Network:   make([]NetworkIOC, 0),
+		Registry:  make([]RegistryIOC, 0),
+		DNS:       make([]DNSIOC, 0),
+		Images:    make([]ImageIOC, 0),
+	}
+
+	if sample != nil {
+		result.Sample = SampleIOC{
+			Name: sample.Image,
+			PID:  sample.PID,
+		}
+	}
+
+	for _, activity := range activities.Files {
+		if activity.Path == `\FI_UNKNOWN` {
+			continue
+		}
+
+		var fileType string
+		switch activity.Action {
+		case "CREATE":
+			fileType = "created"
+		case "WRITE":
+			fileType = "modified"
+		case "DELETE":
+			fileType = "deleted"
+		case "RENAME":
+			fileType = "renamed"
+		default:
+			continue
+		}
+
+		result.Files = append(result.Files, FileIOC{
+			Path:    activity.Path,
+			Type:    fileType,
+			PID:     activity.PID,
+			Process: activity.Image,
+		})
+	}
+
+	for _, activity := range activities.Network {
+		result.Network = append(result.Network, NetworkIOC{
+			Type:     activity.Type,
+			Protocol: activity.Protocol,
+			DestIP:   activity.DestIP,
+			DestPort: activity.DestPort,
+			PID:      activity.PID,
+			Process:  activity.Image,
+		})
+	}
+
+	for _, activity := range activities.Registry {
+		result.Registry = append(result.Registry, RegistryIOC{
+			Action:  activity.Action,
+			Key:     activity.Key,
+			PID:     activity.PID,
+			Process: activity.Image,
+		})
+	}
+
+	for _, activity := range activities.DNS {
+		result.DNS = append(result.DNS, DNSIOC{
+			Domain:  activity.QueryName,
+			Results: activity.Results,
+			PID:     activity.PID,
+			Process: activity.Image,
+		})
+	}
+
+	for _, activity := range activities.Images {
+		result.Images = append(result.Images, ImageIOC{
+			Path:     activity.Path,
+			PID:      activity.PID,
+			Process:  activity.Image,
+			Checksum: activity.ImageChecksum,
+		})
+	}
+
+	for _, process := range processes {
+		if process == nil || !relevantProcesses[process] {
+			continue
+		}
+
+		result.Processes = append(result.Processes, ProcessIOC{
+			Name:    process.Image,
+			PID:     process.PID,
+			Command: process.Command,
 		})
 	}
 

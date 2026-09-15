@@ -34,6 +34,16 @@ func Map(result ioc.IOCResult, db *Database) []TechniqueMatch {
 	for _, process := range result.Processes {
 		techniqueID := MatchProcessName(process.Name)
 		addMatch(techniqueID, buildProcessEvidence(result, process.Name, process.PID))
+
+		proxyTechnique := MatchSystemBinaryProxyExecution(process)
+		if proxyTechnique != "" {
+			addMatch(proxyTechnique, fmt.Sprintf(
+				"Observed %s with suspicious proxy-execution command line: %s (PID=%d)",
+				process.Name,
+				process.Command,
+				process.PID,
+			))
+		}
 	}
 
 	for _, reg := range result.Registry {
@@ -75,14 +85,10 @@ func Map(result ioc.IOCResult, db *Database) []TechniqueMatch {
 		addMatch(techniqueID, evidence)
 	}
 
-	for _, img := range result.Images {
-		techniqueID := MatchImagePath(img.Path)
-		addMatch(techniqueID, fmt.Sprintf(
-			"Observed module loaded from non-standard path %s by %s (PID=%d)",
-			img.Path,
-			img.Process,
-			img.PID,
-		))
+	// Do not map image loads directly. T1574.002 requires behavioral
+	// correlation, not merely an unusual DLL path.
+	if techniqueID, evidence := MatchDLLSideLoading(result.Files, result.Images); techniqueID != "" {
+		addMatch(techniqueID, evidence)
 	}
 
 	return matches

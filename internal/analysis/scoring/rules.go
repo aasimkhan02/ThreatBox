@@ -9,37 +9,57 @@ type Rule struct {
 var Rules = []Rule{
 	{
 		TechniqueID: "T1059.001",
-		Points:      25,
-		Reason:      "PowerShell execution detected",
+		Points:      10,
+		Reason:      "PowerShell execution observed",
 	},
 	{
 		TechniqueID: "T1059.003",
-		Points:      20,
-		Reason:      "Windows Command Shell execution detected",
+		Points:      8,
+		Reason:      "Windows Command Shell execution observed",
 	},
 	{
 		TechniqueID: "T1059.006",
-		Points:      10,
-		Reason:      "Python execution detected",
+		Points:      8,
+		Reason:      "Python execution observed",
 	},
 	{
 		TechniqueID: "T1547.001",
 		Points:      30,
-		Reason:      "Registry Run key persistence detected",
+		Reason:      "Registry Run key persistence behavior detected",
 	},
 	{
-		TechniqueID: "T1071",
-		Points:      15,
-		Reason:      "Outbound network connection to a public address detected",
+		TechniqueID: "T1218.004",
+		Points:      18,
+		Reason:      "InstallUtil proxy execution pattern detected",
+	},
+	{
+		TechniqueID: "T1218.005",
+		Points:      18,
+		Reason:      "Mshta proxy execution pattern detected",
+	},
+	{
+		TechniqueID: "T1218.007",
+		Points:      18,
+		Reason:      "Msiexec proxy execution pattern detected",
+	},
+	{
+		TechniqueID: "T1218.010",
+		Points:      18,
+		Reason:      "Regsvr32 proxy execution pattern detected",
+	},
+	{
+		TechniqueID: "T1218.011",
+		Points:      18,
+		Reason:      "Rundll32 proxy execution pattern detected",
 	},
 	{
 		TechniqueID: "T1071.004",
-		Points:      10,
-		Reason:      "DNS resolution activity detected",
+		Points:      20,
+		Reason:      "Suspicious DNS communication pattern detected",
 	},
 	{
 		TechniqueID: "T1574.002",
-		Points:      20,
-		Reason:      "Module loaded from a non-standard path detected",
+		Points:      35,
+		Reason:      "High-confidence DLL side-loading correlation detected",
 	},
 }
