@@ -73,7 +73,28 @@ func CreateSample(
 	}
 
 	if exists {
-		http.Error(w, "Sample already exists", http.StatusConflict)
+		var existingJobID string
+		err = db.QueryRow(
+			context.Background(),
+			`SELECT j.job_id FROM jobs j
+			 JOIN samples s ON j.file_id = s.sample_id
+			 WHERE s.sha256 = $1
+			 ORDER BY j.created_at DESC LIMIT 1`,
+			sha256Hash,
+		).Scan(&existingJobID)
+
+		if err != nil {
+			http.Error(w, "Sample exists but could not find associated job", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"message": "Sample already exists, redirecting to existing job",
+			"job_id":  existingJobID,
+			"sha256":  sha256Hash,
+		})
 		return
 	}
 

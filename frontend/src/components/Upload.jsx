@@ -22,8 +22,15 @@ export default function Upload() {
       method: 'POST',
       body: formData
     })
-      .then(res => {
-        if (!res.ok) throw new Error('Upload failed')
+      .then(async res => {
+        if (!res.ok) {
+          let msg = 'Upload failed'
+          try {
+            const errData = await res.text()
+            if (errData) msg = errData
+          } catch(e) {}
+          throw new Error(msg)
+        }
         return res.json()
       })
       .then(data => {
