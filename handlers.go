@@ -6,8 +6,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/aasimkhan02/ThreatBox/internal/storage"
 )
 
 func GetMultipleJobsHandler(
@@ -33,11 +31,6 @@ func GetMultipleJobsHandler(
 	}
 }
 
-type jobDetailsResponse struct {
-	storage.Job
-	AnalysisResult *storage.AnalysisResult `json:"analysis_result,omitempty"`
-}
-
 func GetJobHandler(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -49,26 +42,14 @@ func GetJobHandler(
 		return
 	}
 
-	job, err := GetJob(db, jobID)
+	response, err := GetJobDetails(db, jobID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			http.Error(w, "Job not found", http.StatusNotFound)
 			return
 		}
 
-		http.Error(w, "Failed to fetch job", http.StatusInternalServerError)
-		return
-	}
-
-	response := jobDetailsResponse{
-		Job: job,
-	}
-
-	analysisResult, err := GetAnalysisResultByJobID(db, jobID)
-	if err == nil {
-		response.AnalysisResult = &analysisResult
-	} else if err != pgx.ErrNoRows {
-		http.Error(w, "Failed to fetch analysis result", http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch job details", http.StatusInternalServerError)
 		return
 	}
 

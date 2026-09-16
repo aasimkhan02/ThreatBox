@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -126,6 +128,338 @@ func normalizeNetworkAction(eventType string) string {
 	}
 }
 
+// fileCategory is a small semantic label used for reporting and prioritization.
+// It is descriptive only; a category is not a malware verdict.
+type fileCategory string
+
+const (
+	fileCategoryExecutable fileCategory = "EXECUTABLE"
+	fileCategoryScript     fileCategory = "SCRIPT"
+	fileCategoryConfig     fileCategory = "CONFIG"
+	fileCategoryTemporary  fileCategory = "TEMPORARY"
+	fileCategoryOther      fileCategory = "OTHER"
+)
+
+type fileRelevance int
+
+const (
+	fileRelevanceLow fileRelevance = iota
+	fileRelevanceNormal
+	fileRelevanceNotable
+	fileRelevanceSuspicious
+)
+
+// FileBehaviorSummary is the high-level view of retained file telemetry.
+// The detailed FileActivity records remain the source of IOC evidence.
+type FileBehaviorSummary struct {
+	Created             int                     `json:"created"`
+	Modified            int                     `json:"modified"`
+	Deleted             int                     `json:"deleted"`
+	Renamed             int                     `json:"renamed"`
+	NotableReads        int                     `json:"notable_reads"`
+	TotalActivities     int                     `json:"total_activities"`
+	NormalActivities    int                     `json:"normal_activities"`
+	NotableActivities   int                     `json:"notable_activities"`
+	LowValueActivities  int                     `json:"low_value_activities"`
+	SuppressedRawEvents uint64                  `json:"suppressed_raw_events"`
+	TotalBytesWritten   uint64                  `json:"total_bytes_written"`
+	CategoryCounts      map[fileCategory]int    `json:"category_counts"`
+	NotableFiles        []analysis.FileActivity `json:"notable_files"`
+	Patterns            []string                `json:"patterns"`
+}
+
+func classifyFileCategory(path string) fileCategory {
+	p := normalizeFilterPath(path)
+
+	switch {
+	case strings.HasSuffix(p, ".exe"),
+		strings.HasSuffix(p, ".dll"),
+		strings.HasSuffix(p, ".sys"),
+		strings.HasSuffix(p, ".scr"),
+		strings.HasSuffix(p, ".com"):
+		return fileCategoryExecutable
+
+	case strings.HasSuffix(p, ".ps1"),
+		strings.HasSuffix(p, ".bat"),
+		strings.HasSuffix(p, ".cmd"),
+		strings.HasSuffix(p, ".vbs"),
+		strings.HasSuffix(p, ".js"),
+		strings.HasSuffix(p, ".jse"),
+		strings.HasSuffix(p, ".wsf"),
+		strings.HasSuffix(p, ".wsh"),
+		strings.HasSuffix(p, ".hta"):
+		return fileCategoryScript
+
+	case strings.HasSuffix(p, ".ini"),
+		strings.HasSuffix(p, ".cfg"),
+		strings.HasSuffix(p, ".conf"),
+		strings.HasSuffix(p, ".config"),
+		strings.HasSuffix(p, ".json"),
+		strings.HasSuffix(p, ".xml"),
+		strings.HasSuffix(p, ".yaml"),
+		strings.HasSuffix(p, ".yml"):
+		return fileCategoryConfig
+
+	case strings.HasSuffix(p, ".tmp"),
+		strings.HasSuffix(p, ".temp"):
+		return fileCategoryTemporary
+
+	default:
+		return fileCategoryOther
+	}
+}
+
+func isUserWritablePath(path string) bool {
+	p := normalizeFilterPath(path)
+
+	for _, prefix := range []string{
+		`\users\`,
+		`\appdata\`,
+		`\windows\temp\`,
+		`\temp\`,
+		`\programdata\`,
+	} {
+		if strings.Contains(p, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isSecuritySensitiveFilePath(path string) bool {
+	p := normalizeFilterPath(path)
+
+	for _, name := range []string{
+		`\windows\system32\drivers\etc\hosts`,
+		`\windows\system.ini`,
+		`\windows\win.ini`,
+	} {
+		if strings.Contains(p, name) {
+			return true
+		}
+	}
+
+	for _, marker := range []string{
+		`\startup\`,
+		`\start menu\programs\startup\`,
+	} {
+		if strings.Contains(p, marker) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func scoreFileRelevance(activity analysis.FileActivity) fileRelevance {
+	category := classifyFileCategory(activity.Path)
+	writable := isUserWritablePath(activity.Path)
+	sensitive := isSecuritySensitiveFilePath(activity.Path)
+
+	score := 0
+
+	// Mutations deserve more attention than ordinary reads.
+	if activity.Action != "READ" {
+		score++
+	}
+
+	if category == fileCategoryExecutable || category == fileCategoryScript {
+		score += 2
+	}
+
+	if category == fileCategoryConfig {
+		score++
+	}
+
+	if writable {
+		score += 2
+	}
+
+	if sensitive {
+		score += 3
+	}
+
+	// Repetition is useful context without making it a verdict.
+	if activity.Count >= 25 {
+		score++
+	}
+
+	if activity.Bytes >= 1024*1024 {
+		score++
+	}
+
+	if sensitive || score >= 5 {
+		return fileRelevanceSuspicious
+	}
+
+	if score >= 3 {
+		return fileRelevanceNotable
+	}
+
+	if score >= 1 {
+		return fileRelevanceNormal
+	}
+
+	return fileRelevanceLow
+}
+
+func fileActionPriority(action string) int {
+	switch action {
+	case "CREATE":
+		return 5
+	case "WRITE":
+		return 4
+	case "DELETE":
+		return 3
+	case "RENAME":
+		return 2
+	case "READ":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func buildFileBehaviorSummary(
+	activities []analysis.FileActivity,
+	suppressed uint64,
+) FileBehaviorSummary {
+	summary := FileBehaviorSummary{
+		TotalActivities:     len(activities),
+		SuppressedRawEvents: suppressed,
+		CategoryCounts:      make(map[fileCategory]int),
+		NotableFiles:        make([]analysis.FileActivity, 0),
+		Patterns:            make([]string, 0),
+	}
+
+	for _, activity := range activities {
+		category := classifyFileCategory(activity.Path)
+		summary.CategoryCounts[category]++
+
+		switch activity.Action {
+		case "CREATE":
+			summary.Created++
+		case "WRITE":
+			summary.Modified++
+			summary.TotalBytesWritten += activity.Bytes
+		case "DELETE":
+			summary.Deleted++
+		case "RENAME":
+			summary.Renamed++
+		case "READ":
+			// Counts retained READ records; only notable reads are surfaced
+			// separately below.
+		}
+
+		switch scoreFileRelevance(activity) {
+		case fileRelevanceLow:
+			summary.LowValueActivities++
+		case fileRelevanceNormal:
+			summary.NormalActivities++
+		case fileRelevanceNotable, fileRelevanceSuspicious:
+			summary.NotableActivities++
+			if activity.Action == "READ" {
+				summary.NotableReads++
+			}
+		}
+	}
+
+	candidates := make([]analysis.FileActivity, 0)
+	for _, activity := range activities {
+		if scoreFileRelevance(activity) >= fileRelevanceNotable {
+			candidates = append(candidates, activity)
+		}
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		ri := scoreFileRelevance(candidates[i])
+		rj := scoreFileRelevance(candidates[j])
+
+		if ri != rj {
+			return ri > rj
+		}
+
+		pi := fileActionPriority(candidates[i].Action)
+		pj := fileActionPriority(candidates[j].Action)
+
+		if pi != pj {
+			return pi > pj
+		}
+
+		if candidates[i].Bytes != candidates[j].Bytes {
+			return candidates[i].Bytes > candidates[j].Bytes
+		}
+
+		if candidates[i].Count != candidates[j].Count {
+			return candidates[i].Count > candidates[j].Count
+		}
+
+		return candidates[i].Path < candidates[j].Path
+	})
+
+	const maxNotableFiles = 12
+	if len(candidates) > maxNotableFiles {
+		candidates = candidates[:maxNotableFiles]
+	}
+
+	summary.NotableFiles = append(summary.NotableFiles, candidates...)
+
+	// High-volume patterns are based on distinct retained paths, not raw
+	// ETW event counts, so repeated I/O on one file does not create a
+	// misleading "mass activity" finding.
+	if summary.Created >= 25 {
+		summary.Patterns = append(
+			summary.Patterns,
+			fmt.Sprintf("Mass file creation: %d distinct paths", summary.Created),
+		)
+	}
+
+	if summary.Modified >= 25 {
+		summary.Patterns = append(
+			summary.Patterns,
+			fmt.Sprintf("Mass file modification: %d distinct paths", summary.Modified),
+		)
+	}
+
+	if summary.Deleted >= 25 {
+		summary.Patterns = append(
+			summary.Patterns,
+			fmt.Sprintf("Mass file deletion: %d distinct paths", summary.Deleted),
+		)
+	}
+
+	if summary.Renamed >= 25 {
+		summary.Patterns = append(
+			summary.Patterns,
+			fmt.Sprintf("Mass file rename activity: %d distinct paths", summary.Renamed),
+		)
+	}
+
+	if n := summary.CategoryCounts[fileCategoryExecutable]; n > 0 {
+		summary.Patterns = append(
+			summary.Patterns,
+			fmt.Sprintf("Executable/library activity: %d distinct paths", n),
+		)
+	}
+
+	if n := summary.CategoryCounts[fileCategoryScript]; n > 0 {
+		summary.Patterns = append(
+			summary.Patterns,
+			fmt.Sprintf("Script activity: %d distinct paths", n),
+		)
+	}
+
+	if n := summary.CategoryCounts[fileCategoryConfig]; n > 0 {
+		summary.Patterns = append(
+			summary.Patterns,
+			fmt.Sprintf("Configuration activity: %d distinct paths", n),
+		)
+	}
+
+	return summary
+}
+
 func isInterestingPath(path string) bool {
 	if path == "" {
 		return false
@@ -146,20 +480,110 @@ func isRelevantProcess(pid uint64, relevantPIDs map[uint64]bool) bool {
 	return pid != 0 && relevantPIDs[pid]
 }
 
-// isHighValueFileRead filters the very noisy READ telemetry generated by
-// ordinary Windows/runtime activity while retaining reads that are more likely
-// to represent meaningful sample behavior. File mutations are not filtered.
+// harddiskVolumePrefix matches the NT-namespace volume prefix ETW commonly
+// reports file paths in, e.g. "\device\harddiskvolume3\windows\...".
+var harddiskVolumePrefix = regexp.MustCompile(`^\\device\\harddiskvolume\d+`)
+
+// vsmbOsSharePrefix matches Windows Sandbox's virtual SMB share for the
+// container's own OS volume, e.g.
+// "\device\vmsmb\vsmb-{dcc079ae-60ba-4d07-847c-3493609c0870}\os\windows\...".
+// This share re-exposes the sandbox's normal Windows directory over vmsmb, so
+// once the share/GUID prefix is stripped the remainder is an ordinary Windows
+// path and can be filtered with the same rules as any other Windows path.
+//
+// This intentionally does NOT match every \Device\vmsmb\... path - other
+// VSMB paths (e.g. hash-named shares with no \os\ segment) are left
+// untouched because it isn't yet known whether they represent sample-mounted
+// data rather than sandbox OS infrastructure.
+var vsmbOsSharePrefix = regexp.MustCompile(`^\\device\\vmsmb\\vsmb-\{[0-9a-f-]+\}\\os`)
+
+// normalizeFilterPath collapses the different path representations ETW may
+// report for the same file into one lowercase, backslash-separated form so
+// prefix-based filtering matches regardless of how the path arrived:
+//
+//   - \Device\HarddiskVolume3\Windows\System32\kernel32.dll
+//   - \??\C:\Windows\System32\kernel32.dll
+//   - C:\Windows\System32\kernel32.dll
+//   - \Device\vmsmb\VSMB-{guid}\os\Windows\System32\kernel32.dll
+//
+// all normalize to "\windows\system32\kernel32.dll". This is used only for
+// filtering/comparison; callers keep the original, unnormalized path for
+// display and evidence.
+func normalizeFilterPath(path string) string {
+	p := strings.ToLower(strings.ReplaceAll(path, "/", "\\"))
+
+	// \??\C:\Windows\... (DOS-device path) -> C:\Windows\...
+	p = strings.TrimPrefix(p, `\??\`)
+
+	// \Device\HarddiskVolumeN\Windows\... -> \Windows\...
+	// The specific volume number doesn't matter for filtering; only the
+	// path beneath it does.
+	p = harddiskVolumePrefix.ReplaceAllString(p, "")
+
+	// \Device\vmsmb\VSMB-{guid}\os\Windows\... -> \Windows\...
+	// Sandbox-OS share only; other vmsmb shares are left as-is.
+	p = vsmbOsSharePrefix.ReplaceAllString(p, "")
+
+	// C:\Windows\... -> \Windows\...
+	if len(p) >= 2 && p[1] == ':' {
+		p = p[2:]
+	}
+
+	return p
+}
+
+// isHighValueFileRead filters low-value READ telemetry generated by normal
+// Windows/Sandbox/runtime activity while retaining security-relevant reads.
 func isHighValueFileRead(path string) bool {
 	if path == "" {
 		return false
 	}
 
-	p := strings.ToLower(strings.ReplaceAll(path, "/", "\\"))
-	if volume := strings.Index(p, `:\`); volume >= 0 {
-		p = p[volume+1:]
+	p := normalizeFilterPath(path)
+
+	// Security-sensitive files override the normal Windows noise rules.
+	interestingNames := []string{
+		`\windows\system32\drivers\etc\hosts`,
+		`\windows\system.ini`,
+		`\windows\win.ini`,
+		`\sam`,
+		`\security`,
+		`\system`,
 	}
 
-	// User-writable / commonly abused locations.
+	for _, name := range interestingNames {
+		if strings.Contains(p, name) {
+			return true
+		}
+	}
+
+	// Normal OS/runtime reads are background noise for behavioral analysis.
+	// This intentionally covers only known infrastructure, not arbitrary
+	// user-writable locations.
+	normalNoisePrefixes := []string{
+		`\windows\system32\`,
+		`\windows\syswow64\`,
+		`\windows\winsxs\`,
+		`\windows\microsoft.net\`,
+		`\windows\apppatch\`,
+		`\windows\system32\windowspowershell\`,
+		`\program files\windowspowershell\`,
+		`\programdata\microsoft\windows defender\`,
+	}
+
+	for _, prefix := range normalNoisePrefixes {
+		if strings.HasPrefix(p, prefix) {
+			return false
+		}
+	}
+
+	// Windows Sandbox / session bootstrap artifacts that commonly appear as
+	// descendants of cmd.exe / powershell.exe but are not sample behavior.
+	if isKnownBackgroundFilePath(p) {
+		return false
+	}
+
+	// Reads from user-writable or application-data locations remain visible.
 	userWritablePrefixes := []string{
 		`\users\`,
 		`\windows\temp\`,
@@ -176,38 +600,8 @@ func isHighValueFileRead(path string) bool {
 		}
 	}
 
-	// High-value Windows configuration/security files.
-	interestingNames := []string{
-		`\windows\system32\drivers\etc\hosts`,
-		`\windows\system.ini`,
-		`\windows\win.ini`,
-		`\sam`,
-		`\security`,
-		`\system`,
-	}
-
-	for _, name := range interestingNames {
-		if strings.Contains(p, name) {
-			return true
-		}
-	}
-
-	// Normal Windows installation directories are a major source of benign
-	// library/framework reads from cmd.exe, PowerShell, and other runtimes.
-	normalNoisePrefixes := []string{
-		`\windows\system32\`,
-		`\windows\syswow64\`,
-		`\windows\winsxs\`,
-	}
-
-	for _, prefix := range normalNoisePrefixes {
-		if strings.HasPrefix(p, prefix) {
-			return false
-		}
-	}
-
-	// Executables, scripts, libraries and configuration files are worth
-	// retaining when they are outside normal Windows installation paths.
+	// Executables, scripts, libraries and configuration files outside known
+	// Windows runtime paths are useful evidence.
 	highValueExtensions := []string{
 		`.exe`,
 		`.dll`,
@@ -230,7 +624,34 @@ func isHighValueFileRead(path string) bool {
 		}
 	}
 
+	// Unknown non-system reads are retained rather than silently discarded.
 	return true
+}
+
+// isKnownBackgroundFilePath identifies a small set of Windows Sandbox/session
+// artifacts observed in our telemetry. These are suppressed for both reads
+// and mutations because their repeated activity is known infrastructure noise.
+// This is deliberately narrow; arbitrary files in Users/AppData/ProgramData
+// remain visible.
+func isKnownBackgroundFilePath(p string) bool {
+	backgroundPrefixes := []string{
+		`\users\wdagutilityaccount\appdata\local\packages\microsoft.windows.search_`,
+		`\users\wdagutilityaccount\appdata\roaming\microsoft\windows\recent\automaticdestinations\`,
+		`\users\wdagutilityaccount\appdata\roaming\microsoft\windows\recent\customdestinations\`,
+		`\users\wdagutilityaccount\appdata\local\microsoft\windows\powershell\startupprofiledata`,
+		`\windows\system32\microsoft\protect\s-1-5-18\preferred`,
+		`\windows\apppatch\sysmain.sdb`,
+		`\windows\system32\perfstringbackup.tmp`,
+		`\programdata\microsoft\windows defender\`,
+	}
+
+	for _, prefix := range backgroundPrefixes {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func resolveFilePath(event analysis.Event, names map[uint64]string) string {
@@ -253,7 +674,7 @@ func resolveFilePath(event analysis.Event, names map[uint64]string) string {
 	return ""
 }
 
-func readEvents(path string) (*telemetry, error) {
+func readEvents(path string, expectedSampleNames ...string) (*telemetry, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open telemetry: %w", err)
@@ -285,10 +706,6 @@ func readEvents(path string) (*telemetry, error) {
 				Time:    event.Time,
 			}
 			t.Processes[event.PID] = node
-
-			if strings.EqualFold(event.Image, "sample.exe") && t.Sample == nil {
-				t.Sample = node
-			}
 
 		case event.Type == "thread_start" || event.Type == "thread_dc_start":
 			if event.ThreadID != 0 && event.PID != 0 {
@@ -340,6 +757,14 @@ func readEvents(path string) (*telemetry, error) {
 		return nil, fmt.Errorf("read telemetry: %w", err)
 	}
 
+	// Resolve the sample process only after the complete process table has been
+	// collected. The sandbox normally presents the sample as sample.exe, but
+	// frontend uploads may have any original filename. Prefer a process whose
+	// command line points into the ThreatBox sample directory, then fall back to
+	// the uploaded name and finally the legacy sample.exe name. This keeps the
+	// analyzer independent of how the sandbox chooses to name the guest copy.
+	t.Sample = findSampleProcess(t.Processes, expectedSampleNames...)
+
 	// Resolve thread-based attribution only after all thread/process events
 	// have been read, so event ordering cannot make the mapping fail.
 	for _, event := range t.FileEvents {
@@ -367,6 +792,52 @@ func readEvents(path string) (*telemetry, error) {
 	}
 
 	return t, nil
+}
+
+func findSampleProcess(processes map[uint64]*analysis.ProcessNode, expectedSampleNames ...string) *analysis.ProcessNode {
+	normalizedNames := make(map[string]bool)
+	for _, name := range expectedSampleNames {
+		name = strings.TrimSpace(filepath.Base(strings.ReplaceAll(name, "/", `\`)))
+		if name != "" {
+			normalizedNames[strings.ToLower(name)] = true
+		}
+	}
+
+	bestScore := -1
+	var best *analysis.ProcessNode
+
+	for _, process := range processes {
+		imageName := strings.ToLower(strings.TrimSpace(filepath.Base(strings.ReplaceAll(process.Image, "/", `\`))))
+		if imageName == "" {
+			continue
+		}
+
+		score := -1
+		command := strings.ToLower(strings.ReplaceAll(process.Command, "/", `\`))
+
+		// Strongest signal: command line explicitly references the guest sample
+		// mount. This disambiguates uploads named after common Windows binaries.
+		if strings.Contains(command, `\threatbox\sample\`) {
+			score = 100
+		}
+
+		// Next prefer the caller-provided original filename.
+		if normalizedNames[imageName] && score < 80 {
+			score = 80
+		}
+
+		// Legacy sandbox name remains a valid fallback.
+		if imageName == "sample.exe" && score < 60 {
+			score = 60
+		}
+
+		if score > bestScore {
+			bestScore = score
+			best = process
+		}
+	}
+
+	return best
 }
 
 func buildProcessTree(processes map[uint64]*analysis.ProcessNode, sample *analysis.ProcessNode) []*analysis.ProcessNode {
@@ -402,8 +873,9 @@ func collectSampleFileActivity(
 	relevantPIDs map[uint64]bool,
 	processes map[uint64]*analysis.ProcessNode,
 	fileNames map[uint64]string,
-) []analysis.FileActivity {
+) ([]analysis.FileActivity, uint64) {
 	activities := make(map[string]*analysis.FileActivity)
+	var suppressedEvents uint64
 
 	for _, event := range fileEvents {
 		if !isRelevantProcess(event.PID, relevantPIDs) {
@@ -420,10 +892,16 @@ func collectSampleFileActivity(
 			continue
 		}
 
-		// READ events are by far the noisiest file telemetry. Preserve all
-		// mutations, but require additional relevance for ordinary reads.
-		if action == "READ" && !isHighValueFileRead(path) {
-			continue
+		filterPath := normalizeFilterPath(path)
+
+		// Only READs from known Windows/Sandbox infrastructure are suppressed.
+		// CREATE/WRITE/DELETE/RENAME are always retained because mutations can
+		// represent payload drops, staging, persistence, or destructive behavior.
+		if action == "READ" {
+			if isKnownBackgroundFilePath(filterPath) || !isHighValueFileRead(path) {
+				suppressedEvents++
+				continue
+			}
 		}
 
 		image := "unknown"
@@ -431,6 +909,8 @@ func collectSampleFileActivity(
 			image = process.Image
 		}
 
+		// Preserve action/path/PID attribution in the evidence row while
+		// deduplicating repeated low-level I/O.
 		key := fmt.Sprintf("%s\x00%s", action, path)
 		activity, ok := activities[key]
 		if !ok {
@@ -458,10 +938,13 @@ func collectSampleFileActivity(
 		if result[i].Action != result[j].Action {
 			return result[i].Action < result[j].Action
 		}
-		return result[i].Path < result[j].Path
+		if result[i].Path != result[j].Path {
+			return result[i].Path < result[j].Path
+		}
+		return result[i].PID < result[j].PID
 	})
 
-	return result
+	return result, suppressedEvents
 }
 
 func collectSampleNetworkActivity(
@@ -765,7 +1248,7 @@ func broadcast(server *stream.Server, event stream.Event) {
 	}
 }
 
-func Analyze(path string, streamServer *stream.Server) (mitre.AnalysisOutput, error) {
+func Analyze(path string, streamServer *stream.Server, expectedSampleNames ...string) (mitre.AnalysisOutput, error) {
 
 	broadcast(streamServer, stream.Event{
 		Type: "analysis_started",
@@ -774,13 +1257,13 @@ func Analyze(path string, streamServer *stream.Server) (mitre.AnalysisOutput, er
 		},
 	})
 
-	t, err := readEvents(path)
+	t, err := readEvents(path, expectedSampleNames...)
 	if err != nil {
 		return mitre.AnalysisOutput{}, err
 	}
 
 	if t.Sample == nil {
-		return mitre.AnalysisOutput{}, fmt.Errorf("no sample.exe process found")
+		return mitre.AnalysisOutput{}, fmt.Errorf("no sample process found (expected upload names: %s)", strings.Join(expectedSampleNames, ", "))
 	}
 
 	chain := buildProcessTree(t.Processes, t.Sample)
@@ -791,7 +1274,8 @@ func Analyze(path string, streamServer *stream.Server) (mitre.AnalysisOutput, er
 	relevantPIDs := make(map[uint64]bool)
 	markDescendants(t.Sample, relevantPIDs)
 
-	fileActivities := collectSampleFileActivity(t.FileEvents, relevantPIDs, t.Processes, t.FileNames)
+	fileActivities, suppressedFileEvents := collectSampleFileActivity(t.FileEvents, relevantPIDs, t.Processes, t.FileNames)
+	fileSummary := buildFileBehaviorSummary(fileActivities, suppressedFileEvents)
 	networkActivities := collectSampleNetworkActivity(t.NetworkEvents, relevantPIDs, t.Processes)
 	registryActivities := collectSampleRegistryActivity(t.RegistryEvents, relevantPIDs, t.Processes)
 	dnsActivities := collectSampleDNSActivity(t.DNSEvents, relevantPIDs, t.Processes)
@@ -831,6 +1315,7 @@ func Analyze(path string, streamServer *stream.Server) (mitre.AnalysisOutput, er
 		Data: threatScore,
 	})
 
+	broadcast(streamServer, stream.Event{Type: "file_behavior_summary", Data: fileSummary})
 	broadcast(streamServer, stream.Event{Type: "network_activity", Data: networkActivities})
 	broadcast(streamServer, stream.Event{Type: "registry_activity", Data: registryActivities})
 	broadcast(streamServer, stream.Event{Type: "dns_activity", Data: dnsActivities})
@@ -875,32 +1360,68 @@ func Analyze(path string, streamServer *stream.Server) (mitre.AnalysisOutput, er
 	}
 
 	fmt.Println()
-	fmt.Println("BEHAVIOR")
+	fmt.Println("FILE BEHAVIOR")
+	fmt.Printf("  • Created: %d distinct paths\n", fileSummary.Created)
+	fmt.Printf("  • Modified: %d distinct paths\n", fileSummary.Modified)
+	fmt.Printf("  • Deleted: %d distinct paths\n", fileSummary.Deleted)
+	fmt.Printf("  • Renamed: %d distinct paths\n", fileSummary.Renamed)
+	if fileSummary.NotableReads > 0 {
+		fmt.Printf("  • Notable reads: %d\n", fileSummary.NotableReads)
+	}
 
-	if len(fileActivities) == 0 &&
-		len(networkActivities) == 0 &&
-		len(dnsActivities) == 0 &&
-		len(imageActivities) == 0 {
-		fmt.Println("  No notable behavior detected")
-	} else {
-		if len(fileActivities) > 0 {
-			fmt.Printf("  • File activity: %d unique actions\n", len(fileActivities))
-		}
-
-		if len(networkActivities) > 0 {
-			fmt.Printf("  • Network activity: %d connections\n", len(networkActivities))
-		}
-
-		if len(dnsActivities) > 0 {
-			fmt.Printf("  • DNS activity: %d queries\n", len(dnsActivities))
-		}
-
-		if len(imageActivities) > 0 {
-			fmt.Printf("  • Image/DLL activity: %d modules\n", len(imageActivities))
+	if len(fileSummary.NotableFiles) > 0 {
+		fmt.Println()
+		fmt.Println("NOTABLE FILES")
+		for _, activity := range fileSummary.NotableFiles {
+			if activity.Action == "WRITE" && activity.Bytes > 0 {
+				fmt.Printf("  • %s x%d | %s | %s | bytes=%d\n",
+					activity.Action,
+					activity.Count,
+					activity.Image,
+					activity.Path,
+					activity.Bytes,
+				)
+			} else {
+				fmt.Printf("  • %s x%d | %s | %s\n",
+					activity.Action,
+					activity.Count,
+					activity.Image,
+					activity.Path,
+				)
+			}
 		}
 	}
 
+	if len(fileSummary.Patterns) > 0 {
+		fmt.Println()
+		fmt.Println("FILE PATTERNS")
+		for _, pattern := range fileSummary.Patterns {
+			fmt.Printf("  • %s\n", pattern)
+		}
+	}
+
+	if fileSummary.NormalActivities > 0 || fileSummary.LowValueActivities > 0 {
+		fmt.Printf("\n  Additional file activity summarized: %d records\n",
+			fileSummary.NormalActivities+fileSummary.LowValueActivities,
+		)
+	}
+
+	if suppressedFileEvents > 0 {
+		fmt.Printf("  Background file noise suppressed: %d raw events\n", suppressedFileEvents)
+	}
+
 	fmt.Println()
+	fmt.Println("OTHER BEHAVIOR")
+	if len(networkActivities) > 0 {
+		fmt.Printf("  • Network activity: %d connections\n", len(networkActivities))
+	}
+	if len(dnsActivities) > 0 {
+		fmt.Printf("  • DNS activity: %d queries\n", len(dnsActivities))
+	}
+	if len(imageActivities) > 0 {
+		fmt.Printf("  • Image/DLL activity: %d modules\n", len(imageActivities))
+	}
+
 	fmt.Println("SCORE REASONS")
 
 	if len(threatScore.Reasons) == 0 {

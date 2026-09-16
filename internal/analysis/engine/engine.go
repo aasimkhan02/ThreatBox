@@ -4,12 +4,11 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/aasimkhan02/ThreatBox/internal/analysis"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/ioc"
@@ -21,22 +20,9 @@ import (
 // telemetry is everything extracted from one pass over the collector's
 // JSONL output. Replaces the previous seven-value positional return
 // from readEvents, which was about to grow past ten.
-type processInstance struct {
-	PID     uint64
-	PPID    uint64
-	Image   string
-	Command string
-	Start   time.Time
-	Stop    time.Time
-	Node    *analysis.ProcessNode
-}
-
 type telemetry struct {
 	Processes map[uint64]*analysis.ProcessNode
 	Sample    *analysis.ProcessNode
-
-	ProcessInstances []*processInstance
-	SampleInstance   *processInstance
 
 	FileEvents     []*analysis.Event
 	NetworkEvents  []*analysis.Event
@@ -166,24 +152,20 @@ const (
 // FileBehaviorSummary is the high-level view of retained file telemetry.
 // The detailed FileActivity records remain the source of IOC evidence.
 type FileBehaviorSummary struct {
-	Created                int                     `json:"created"`
-	Modified               int                     `json:"modified"`
-	Deleted                int                     `json:"deleted"`
-	Renamed                int                     `json:"renamed"`
-	InfrastructureCreated  int                     `json:"infrastructure_created"`
-	InfrastructureModified int                     `json:"infrastructure_modified"`
-	BehavioralCreated      int                     `json:"behavioral_created"`
-	BehavioralModified     int                     `json:"behavioral_modified"`
-	NotableReads           int                     `json:"notable_reads"`
-	TotalActivities        int                     `json:"total_activities"`
-	NormalActivities       int                     `json:"normal_activities"`
-	NotableActivities      int                     `json:"notable_activities"`
-	LowValueActivities     int                     `json:"low_value_activities"`
-	SuppressedRawEvents    uint64                  `json:"suppressed_raw_events"`
-	TotalBytesWritten      uint64                  `json:"total_bytes_written"`
-	CategoryCounts         map[fileCategory]int    `json:"category_counts"`
-	NotableFiles           []analysis.FileActivity `json:"notable_files"`
-	Patterns               []string                `json:"patterns"`
+	Created             int                     `json:"created"`
+	Modified            int                     `json:"modified"`
+	Deleted             int                     `json:"deleted"`
+	Renamed             int                     `json:"renamed"`
+	NotableReads        int                     `json:"notable_reads"`
+	TotalActivities     int                     `json:"total_activities"`
+	NormalActivities    int                     `json:"normal_activities"`
+	NotableActivities   int                     `json:"notable_activities"`
+	LowValueActivities  int                     `json:"low_value_activities"`
+	SuppressedRawEvents uint64                  `json:"suppressed_raw_events"`
+	TotalBytesWritten   uint64                  `json:"total_bytes_written"`
+	CategoryCounts      map[fileCategory]int    `json:"category_counts"`
+	NotableFiles        []analysis.FileActivity `json:"notable_files"`
+	Patterns            []string                `json:"patterns"`
 }
 
 func classifyFileCategory(path string) fileCategory {
@@ -270,62 +252,10 @@ func isSecuritySensitiveFilePath(path string) bool {
 	return false
 }
 
-func isInfrastructureFilePath(path string) bool {
-	p := normalizeFilterPath(path)
-
-	infrastructurePrefixes := []string{
-		`\windows\system32\`,
-		`\windows\syswow64\`,
-		`\windows\winsxs\`,
-		`\windows\microsoft.net\`,
-		`\windows\apppatch\`,
-		`\windows\system32\windowspowershell\`,
-		`\program files\windowspowershell\`,
-		`\programdata\microsoft\windows defender\`,
-		`\users\wdagutilityaccount\appdata\local\packages\microsoft.windows.search_`,
-		`\users\wdagutilityaccount\appdata\local\microsoft\windows\powershell\`,
-	}
-
-	for _, prefix := range infrastructurePrefixes {
-		if strings.HasPrefix(p, prefix) {
-			return true
-		}
-	}
-
-	// PowerShell's execution-policy probe is a short-lived runtime artifact,
-	// not a payload drop.
-	if strings.Contains(p, `\users\wdagutilityaccount\appdata\local\temp\__psscriptpolicytest_`) {
-		return true
-	}
-
-	return false
-}
-
-func isExpectedRuntimeFileActivity(activity analysis.FileActivity) bool {
-	if !isInfrastructureFilePath(activity.Path) {
-		return false
-	}
-
-	process := strings.ToLower(strings.TrimSpace(activity.Image))
-	switch process {
-	case "powershell.exe", "pwsh.exe":
-		return true
-	default:
-		return false
-	}
-}
-
 func scoreFileRelevance(activity analysis.FileActivity) fileRelevance {
 	category := classifyFileCategory(activity.Path)
 	writable := isUserWritablePath(activity.Path)
 	sensitive := isSecuritySensitiveFilePath(activity.Path)
-
-	// PowerShell/.NET/Defender runtime activity in known infrastructure
-	// locations is intentionally treated as low-value context. The same path
-	// created by the submitted sample process remains visible and significant.
-	if isExpectedRuntimeFileActivity(activity) && !sensitive {
-		return fileRelevanceLow
-	}
 
 	score := 0
 
@@ -407,23 +337,12 @@ func buildFileBehaviorSummary(
 		category := classifyFileCategory(activity.Path)
 		summary.CategoryCounts[category]++
 
-		infrastructure := isInfrastructureFilePath(activity.Path)
 		switch activity.Action {
 		case "CREATE":
 			summary.Created++
-			if infrastructure {
-				summary.InfrastructureCreated++
-			} else {
-				summary.BehavioralCreated++
-			}
 		case "WRITE":
 			summary.Modified++
 			summary.TotalBytesWritten += activity.Bytes
-			if infrastructure {
-				summary.InfrastructureModified++
-			} else {
-				summary.BehavioralModified++
-			}
 		case "DELETE":
 			summary.Deleted++
 		case "RENAME":
@@ -486,20 +405,20 @@ func buildFileBehaviorSummary(
 
 	summary.NotableFiles = append(summary.NotableFiles, candidates...)
 
-	// Mass patterns describe behavioral paths, not Windows/.NET/Sandbox
-	// infrastructure. This prevents PowerShell runtime activity from
-	// masquerading as a payload drop burst.
-	if summary.BehavioralCreated >= 25 {
+	// High-volume patterns are based on distinct retained paths, not raw
+	// ETW event counts, so repeated I/O on one file does not create a
+	// misleading "mass activity" finding.
+	if summary.Created >= 25 {
 		summary.Patterns = append(
 			summary.Patterns,
-			fmt.Sprintf("Mass behavioral file creation: %d distinct paths", summary.BehavioralCreated),
+			fmt.Sprintf("Mass file creation: %d distinct paths", summary.Created),
 		)
 	}
 
-	if summary.BehavioralModified >= 25 {
+	if summary.Modified >= 25 {
 		summary.Patterns = append(
 			summary.Patterns,
-			fmt.Sprintf("Mass behavioral file modification: %d distinct paths", summary.BehavioralModified),
+			fmt.Sprintf("Mass file modification: %d distinct paths", summary.Modified),
 		)
 	}
 
@@ -539,50 +458,6 @@ func buildFileBehaviorSummary(
 	}
 
 	return summary
-}
-
-func hasTechnique(techniques []mitre.TechniqueMatch, id string) bool {
-	for _, technique := range techniques {
-		if technique.TechniqueID == id {
-			return true
-		}
-	}
-	return false
-}
-
-func hasExternalNetwork(activities []analysis.NetworkActivity) bool {
-	for _, activity := range activities {
-		if activity.DestIP == "" {
-			continue
-		}
-		ip := net.ParseIP(activity.DestIP)
-		if ip == nil {
-			continue
-		}
-		if !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !ip.IsUnspecified() {
-			return true
-		}
-	}
-	return false
-}
-
-func hasSuspiciousFileMutation(activities []analysis.FileActivity) bool {
-	for _, activity := range activities {
-		if activity.Action != "CREATE" && activity.Action != "WRITE" {
-			continue
-		}
-		if isExpectedRuntimeFileActivity(activity) {
-			continue
-		}
-
-		category := classifyFileCategory(activity.Path)
-		if isSecuritySensitiveFilePath(activity.Path) ||
-			(category == fileCategoryExecutable || category == fileCategoryScript) &&
-				isUserWritablePath(activity.Path) {
-			return true
-		}
-	}
-	return false
 }
 
 func isInterestingPath(path string) bool {
@@ -799,7 +674,7 @@ func resolveFilePath(event analysis.Event, names map[uint64]string) string {
 	return ""
 }
 
-func readEvents(path string) (*telemetry, error) {
+func readEvents(path string, expectedSampleNames ...string) (*telemetry, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open telemetry: %w", err)
@@ -812,8 +687,6 @@ func readEvents(path string) (*telemetry, error) {
 		ThreadToProcess: make(map[uint64]uint64),
 	}
 
-	openProcesses := make(map[uint64]*processInstance)
-
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 
@@ -825,11 +698,6 @@ func readEvents(path string) (*telemetry, error) {
 
 		switch {
 		case event.Type == "process_start":
-			startTime, err := parseEventTime(event.Time)
-			if err != nil {
-				continue
-			}
-
 			node := &analysis.ProcessNode{
 				PID:     event.PID,
 				PPID:    event.PPID,
@@ -837,43 +705,7 @@ func readEvents(path string) (*telemetry, error) {
 				Command: event.Command,
 				Time:    event.Time,
 			}
-
-			instance := &processInstance{
-				PID:     event.PID,
-				PPID:    event.PPID,
-				Image:   event.Image,
-				Command: event.Command,
-				Start:   startTime,
-				Node:    node,
-			}
-
-			// A PID must not be considered the same process after reuse.
-			// If a new start arrives without a stop for the old instance,
-			// close the old lifetime at the new start timestamp.
-			if previous := openProcesses[event.PID]; previous != nil && previous.Stop.IsZero() {
-				previous.Stop = startTime
-			}
-
-			openProcesses[event.PID] = instance
-			t.ProcessInstances = append(t.ProcessInstances, instance)
-
-			// Keep the legacy PID-indexed map for existing output/IOC
-			// compatibility. Behavioral attribution never relies on it.
 			t.Processes[event.PID] = node
-
-			if strings.EqualFold(event.Image, "sample.exe") && t.SampleInstance == nil {
-				t.SampleInstance = instance
-				t.Sample = node
-			}
-
-		case event.Type == "process_stop":
-			stopTime, err := parseEventTime(event.Time)
-			if err == nil {
-				if instance := openProcesses[event.PID]; instance != nil {
-					instance.Stop = stopTime
-					delete(openProcesses, event.PID)
-				}
-			}
 
 		case event.Type == "thread_start" || event.Type == "thread_dc_start":
 			if event.ThreadID != 0 && event.PID != 0 {
@@ -925,6 +757,14 @@ func readEvents(path string) (*telemetry, error) {
 		return nil, fmt.Errorf("read telemetry: %w", err)
 	}
 
+	// Resolve the sample process only after the complete process table has been
+	// collected. The sandbox normally presents the sample as sample.exe, but
+	// frontend uploads may have any original filename. Prefer a process whose
+	// command line points into the ThreatBox sample directory, then fall back to
+	// the uploaded name and finally the legacy sample.exe name. This keeps the
+	// analyzer independent of how the sandbox chooses to name the guest copy.
+	t.Sample = findSampleProcess(t.Processes, expectedSampleNames...)
+
 	// Resolve thread-based attribution only after all thread/process events
 	// have been read, so event ordering cannot make the mapping fail.
 	for _, event := range t.FileEvents {
@@ -954,124 +794,50 @@ func readEvents(path string) (*telemetry, error) {
 	return t, nil
 }
 
-func parseEventTime(value string) (time.Time, error) {
-	if value == "" {
-		return time.Time{}, fmt.Errorf("empty event timestamp")
-	}
-	return time.Parse(time.RFC3339Nano, value)
-}
-
-func buildProcessInstanceIndex(instances []*processInstance) map[uint64][]*processInstance {
-	index := make(map[uint64][]*processInstance)
-	for _, instance := range instances {
-		index[instance.PID] = append(index[instance.PID], instance)
-	}
-
-	for pid := range index {
-		sort.Slice(index[pid], func(i, j int) bool {
-			return index[pid][i].Start.Before(index[pid][j].Start)
-		})
-	}
-
-	return index
-}
-
-func processInstanceAt(pid uint64, eventTime time.Time, index map[uint64][]*processInstance) *processInstance {
-	instances := index[pid]
-	if len(instances) == 0 || eventTime.IsZero() {
-		return nil
-	}
-
-	var candidate *processInstance
-	for _, instance := range instances {
-		if instance.Start.After(eventTime) {
-			break
-		}
-		if instance.Stop.IsZero() || !eventTime.After(instance.Stop) {
-			candidate = instance
+func findSampleProcess(processes map[uint64]*analysis.ProcessNode, expectedSampleNames ...string) *analysis.ProcessNode {
+	normalizedNames := make(map[string]bool)
+	for _, name := range expectedSampleNames {
+		name = strings.TrimSpace(filepath.Base(strings.ReplaceAll(name, "/", `\`)))
+		if name != "" {
+			normalizedNames[strings.ToLower(name)] = true
 		}
 	}
-	return candidate
-}
 
-func markRelevantProcessInstances(
-	root *processInstance,
-	instances []*processInstance,
-	relevant map[*processInstance]bool,
-) {
-	if root == nil {
-		return
-	}
+	bestScore := -1
+	var best *analysis.ProcessNode
 
-	relevant[root] = true
-
-	// Resolve each child to the single parent process instance that was alive
-	// when the child started. This prevents a reused PID from inheriting the
-	// wrong ancestry.
-	parentInstance := func(child *processInstance) *processInstance {
-		var best *processInstance
-		for _, candidate := range instances {
-			if candidate.PID != child.PPID {
-				continue
-			}
-			if candidate.Start.After(child.Start) {
-				continue
-			}
-			if !candidate.Stop.IsZero() && candidate.Stop.Before(child.Start) {
-				continue
-			}
-			if best == nil || candidate.Start.After(best.Start) {
-				best = candidate
-			}
+	for _, process := range processes {
+		imageName := strings.ToLower(strings.TrimSpace(filepath.Base(strings.ReplaceAll(process.Image, "/", `\`))))
+		if imageName == "" {
+			continue
 		}
-		return best
-	}
 
-	queue := []*processInstance{root}
-	for len(queue) > 0 {
-		parent := queue[0]
-		queue = queue[1:]
+		score := -1
+		command := strings.ToLower(strings.ReplaceAll(process.Command, "/", `\`))
 
-		for _, child := range instances {
-			if relevant[child] || child.PPID != parent.PID {
-				continue
-			}
+		// Strongest signal: command line explicitly references the guest sample
+		// mount. This disambiguates uploads named after common Windows binaries.
+		if strings.Contains(command, `\threatbox\sample\`) {
+			score = 100
+		}
 
-			if p := parentInstance(child); p == parent {
-				relevant[child] = true
-				if child.Node != nil {
-					parent.Node.Children = append(parent.Node.Children, child.Node)
-				}
-				queue = append(queue, child)
-			}
+		// Next prefer the caller-provided original filename.
+		if normalizedNames[imageName] && score < 80 {
+			score = 80
+		}
+
+		// Legacy sandbox name remains a valid fallback.
+		if imageName == "sample.exe" && score < 60 {
+			score = 60
+		}
+
+		if score > bestScore {
+			bestScore = score
+			best = process
 		}
 	}
-}
 
-func eventProcessInstance(
-	event *analysis.Event,
-	index map[uint64][]*processInstance,
-) *processInstance {
-	if event == nil {
-		return nil
-	}
-	eventTime, err := parseEventTime(event.Time)
-	if err != nil {
-		return nil
-	}
-	return processInstanceAt(event.PID, eventTime, index)
-}
-
-func relevantEventProcess(
-	event *analysis.Event,
-	index map[uint64][]*processInstance,
-	relevant map[*processInstance]bool,
-) (*processInstance, bool) {
-	instance := eventProcessInstance(event, index)
-	if instance == nil || !relevant[instance] {
-		return nil, false
-	}
-	return instance, true
+	return best
 }
 
 func buildProcessTree(processes map[uint64]*analysis.ProcessNode, sample *analysis.ProcessNode) []*analysis.ProcessNode {
@@ -1104,16 +870,15 @@ func buildProcessTree(processes map[uint64]*analysis.ProcessNode, sample *analys
 
 func collectSampleFileActivity(
 	fileEvents []*analysis.Event,
-	relevant map[*processInstance]bool,
-	processIndex map[uint64][]*processInstance,
+	relevantPIDs map[uint64]bool,
+	processes map[uint64]*analysis.ProcessNode,
 	fileNames map[uint64]string,
 ) ([]analysis.FileActivity, uint64) {
 	activities := make(map[string]*analysis.FileActivity)
 	var suppressedEvents uint64
 
 	for _, event := range fileEvents {
-		instance, ok := relevantEventProcess(event, processIndex, relevant)
-		if !ok {
+		if !isRelevantProcess(event.PID, relevantPIDs) {
 			continue
 		}
 
@@ -1139,7 +904,10 @@ func collectSampleFileActivity(
 			}
 		}
 
-		image := instance.Image
+		image := "unknown"
+		if process, ok := processes[event.PID]; ok {
+			image = process.Image
+		}
 
 		// Preserve action/path/PID attribution in the evidence row while
 		// deduplicating repeated low-level I/O.
@@ -1181,14 +949,13 @@ func collectSampleFileActivity(
 
 func collectSampleNetworkActivity(
 	events []*analysis.Event,
-	relevant map[*processInstance]bool,
-	processIndex map[uint64][]*processInstance,
+	relevantPIDs map[uint64]bool,
+	processes map[uint64]*analysis.ProcessNode,
 ) []analysis.NetworkActivity {
 	activities := make(map[string]*analysis.NetworkActivity)
 
 	for _, event := range events {
-		instance, ok := relevantEventProcess(event, processIndex, relevant)
-		if !ok {
+		if !isRelevantProcess(event.PID, relevantPIDs) {
 			continue
 		}
 
@@ -1197,7 +964,10 @@ func collectSampleNetworkActivity(
 			continue
 		}
 
-		image := instance.Image
+		image := "unknown"
+		if process, ok := processes[event.PID]; ok {
+			image = process.Image
+		}
 
 		key := fmt.Sprintf("%s\x00%s\x00%d\x00%d", action, event.DestIP, event.DestPort, event.PID)
 		activity, ok := activities[key]
@@ -1237,14 +1007,13 @@ func collectSampleNetworkActivity(
 
 func collectSampleRegistryActivity(
 	events []*analysis.Event,
-	relevant map[*processInstance]bool,
-	processIndex map[uint64][]*processInstance,
+	relevantPIDs map[uint64]bool,
+	processes map[uint64]*analysis.ProcessNode,
 ) []analysis.RegistryActivity {
 	activities := make(map[string]*analysis.RegistryActivity)
 
 	for _, event := range events {
-		instance, ok := relevantEventProcess(event, processIndex, relevant)
-		if !ok {
+		if !isRelevantProcess(event.PID, relevantPIDs) {
 			continue
 		}
 
@@ -1253,7 +1022,10 @@ func collectSampleRegistryActivity(
 			continue
 		}
 
-		image := instance.Image
+		image := "unknown"
+		if process, ok := processes[event.PID]; ok {
+			image = process.Image
+		}
 
 		key := fmt.Sprintf("%s\x00%s\x00%d", action, event.RegistryKey, event.PID)
 		activity, ok := activities[key]
@@ -1286,18 +1058,20 @@ func collectSampleRegistryActivity(
 
 func collectSampleDNSActivity(
 	events []*analysis.Event,
-	relevant map[*processInstance]bool,
-	processIndex map[uint64][]*processInstance,
+	relevantPIDs map[uint64]bool,
+	processes map[uint64]*analysis.ProcessNode,
 ) []analysis.DNSActivity {
 	activities := make(map[string]*analysis.DNSActivity)
 
 	for _, event := range events {
-		instance, ok := relevantEventProcess(event, processIndex, relevant)
-		if !ok || event.DNSQueryName == "" {
+		if !isRelevantProcess(event.PID, relevantPIDs) || event.DNSQueryName == "" {
 			continue
 		}
 
-		image := instance.Image
+		image := "unknown"
+		if process, ok := processes[event.PID]; ok {
+			image = process.Image
+		}
 
 		key := fmt.Sprintf("%s\x00%d", event.DNSQueryName, event.PID)
 		activity, ok := activities[key]
@@ -1339,14 +1113,13 @@ func collectSampleDNSActivity(
 
 func collectSampleImageActivity(
 	events []*analysis.Event,
-	relevant map[*processInstance]bool,
-	processIndex map[uint64][]*processInstance,
+	relevantPIDs map[uint64]bool,
+	processes map[uint64]*analysis.ProcessNode,
 ) []analysis.ImageActivity {
 	activities := make(map[string]*analysis.ImageActivity)
 
 	for _, event := range events {
-		instance, ok := relevantEventProcess(event, processIndex, relevant)
-		if !ok || event.Image == "" {
+		if !isRelevantProcess(event.PID, relevantPIDs) || event.Image == "" {
 			continue
 		}
 
@@ -1357,7 +1130,10 @@ func collectSampleImageActivity(
 			continue
 		}
 
-		procImage := instance.Image
+		procImage := "unknown"
+		if process, ok := processes[event.PID]; ok {
+			procImage = process.Image
+		}
 
 		key := fmt.Sprintf("%s\x00%d", event.Image, event.PID)
 		activity, ok := activities[key]
@@ -1383,6 +1159,17 @@ func collectSampleImageActivity(
 	})
 
 	return result
+}
+
+func markDescendants(root *analysis.ProcessNode, relevant map[uint64]bool) {
+	if root == nil || root.PID == 0 || relevant[root.PID] {
+		return
+	}
+
+	relevant[root.PID] = true
+	for _, child := range root.Children {
+		markDescendants(child, relevant)
+	}
 }
 
 func printFileActivity(activities []analysis.FileActivity) {
@@ -1461,7 +1248,7 @@ func broadcast(server *stream.Server, event stream.Event) {
 	}
 }
 
-func Analyze(path string, streamServer *stream.Server) (mitre.AnalysisOutput, error) {
+func Analyze(path string, streamServer *stream.Server, expectedSampleNames ...string) (mitre.AnalysisOutput, error) {
 
 	broadcast(streamServer, stream.Event{
 		Type: "analysis_started",
@@ -1470,56 +1257,37 @@ func Analyze(path string, streamServer *stream.Server) (mitre.AnalysisOutput, er
 		},
 	})
 
-	t, err := readEvents(path)
+	t, err := readEvents(path, expectedSampleNames...)
 	if err != nil {
 		return mitre.AnalysisOutput{}, err
 	}
 
 	if t.Sample == nil {
-		return mitre.AnalysisOutput{}, fmt.Errorf("no sample.exe process found")
+		return mitre.AnalysisOutput{}, fmt.Errorf("no sample process found (expected upload names: %s)", strings.Join(expectedSampleNames, ", "))
 	}
 
-	if t.SampleInstance == nil {
-		return mitre.AnalysisOutput{}, fmt.Errorf("sample.exe process instance not found")
+	chain := buildProcessTree(t.Processes, t.Sample)
+	if len(chain) == 0 {
+		return mitre.AnalysisOutput{}, fmt.Errorf("no process tree found")
 	}
 
-	processIndex := buildProcessInstanceIndex(t.ProcessInstances)
-	relevantInstances := make(map[*processInstance]bool)
-	markRelevantProcessInstances(t.SampleInstance, t.ProcessInstances, relevantInstances)
+	relevantPIDs := make(map[uint64]bool)
+	markDescendants(t.Sample, relevantPIDs)
 
-	if len(relevantInstances) == 0 {
-		return mitre.AnalysisOutput{}, fmt.Errorf("no relevant process tree found")
-	}
-
-	relevantNodes := make(map[*analysis.ProcessNode]bool)
-	relevantProcessList := make([]*analysis.ProcessNode, 0, len(relevantInstances))
-	for instance := range relevantInstances {
-		if instance.Node != nil {
-			relevantNodes[instance.Node] = true
-			relevantProcessList = append(relevantProcessList, instance.Node)
-		}
-	}
-	sort.Slice(relevantProcessList, func(i, j int) bool {
-		if relevantProcessList[i].PID != relevantProcessList[j].PID {
-			return relevantProcessList[i].PID < relevantProcessList[j].PID
-		}
-		return relevantProcessList[i].Time < relevantProcessList[j].Time
-	})
-
-	fileActivities, suppressedFileEvents := collectSampleFileActivity(t.FileEvents, relevantInstances, processIndex, t.FileNames)
+	fileActivities, suppressedFileEvents := collectSampleFileActivity(t.FileEvents, relevantPIDs, t.Processes, t.FileNames)
 	fileSummary := buildFileBehaviorSummary(fileActivities, suppressedFileEvents)
-	networkActivities := collectSampleNetworkActivity(t.NetworkEvents, relevantInstances, processIndex)
-	registryActivities := collectSampleRegistryActivity(t.RegistryEvents, relevantInstances, processIndex)
-	dnsActivities := collectSampleDNSActivity(t.DNSEvents, relevantInstances, processIndex)
-	imageActivities := collectSampleImageActivity(t.ImageEvents, relevantInstances, processIndex)
+	networkActivities := collectSampleNetworkActivity(t.NetworkEvents, relevantPIDs, t.Processes)
+	registryActivities := collectSampleRegistryActivity(t.RegistryEvents, relevantPIDs, t.Processes)
+	dnsActivities := collectSampleDNSActivity(t.DNSEvents, relevantPIDs, t.Processes)
+	imageActivities := collectSampleImageActivity(t.ImageEvents, relevantPIDs, t.Processes)
 
-	iocResult := ioc.ExtractRelevant(ioc.Activities{
+	iocResult := ioc.Extract(ioc.Activities{
 		Files:    fileActivities,
 		Network:  networkActivities,
 		Registry: registryActivities,
 		DNS:      dnsActivities,
 		Images:   imageActivities,
-	}, relevantProcessList, relevantNodes, t.Sample)
+	}, t.Processes, relevantPIDs, t.Sample)
 
 	mitreDB, err := mitre.LoadDatabase(`data\mitre-data\enterprise-attack.json`)
 	if err != nil {
@@ -1540,13 +1308,7 @@ func Analyze(path string, streamServer *stream.Server) (mitre.AnalysisOutput, er
 		techniqueIDs = append(techniqueIDs, technique.TechniqueID)
 	}
 
-	threatScore := scoring.Calculate(techniqueIDs, scoring.Context{
-		SuspiciousFileMutation:  hasSuspiciousFileMutation(fileActivities),
-		MassFileCreation:        fileSummary.BehavioralCreated >= 25,
-		MassFileModification:    fileSummary.BehavioralModified >= 25,
-		ExternalNetworkActivity: len(networkActivities) > 0 && hasExternalNetwork(networkActivities),
-		TelemetryLost:           t.LostEvents,
-	})
+	threatScore := scoring.Calculate(techniqueIDs)
 
 	broadcast(streamServer, stream.Event{
 		Type: "score_updated",
@@ -1600,11 +1362,7 @@ func Analyze(path string, streamServer *stream.Server) (mitre.AnalysisOutput, er
 	fmt.Println()
 	fmt.Println("FILE BEHAVIOR")
 	fmt.Printf("  • Created: %d distinct paths\n", fileSummary.Created)
-	fmt.Printf("    - Infrastructure/runtime: %d\n", fileSummary.InfrastructureCreated)
-	fmt.Printf("    - Behavioral: %d\n", fileSummary.BehavioralCreated)
 	fmt.Printf("  • Modified: %d distinct paths\n", fileSummary.Modified)
-	fmt.Printf("    - Infrastructure/runtime: %d\n", fileSummary.InfrastructureModified)
-	fmt.Printf("    - Behavioral: %d\n", fileSummary.BehavioralModified)
 	fmt.Printf("  • Deleted: %d distinct paths\n", fileSummary.Deleted)
 	fmt.Printf("  • Renamed: %d distinct paths\n", fileSummary.Renamed)
 	if fileSummary.NotableReads > 0 {

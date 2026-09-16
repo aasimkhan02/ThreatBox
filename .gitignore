@@ -1,4 +1,26 @@
+# Environment variables
 .env
+
+# User data
 /uploads
-command.txt
 /data
+
+# Temp/Command files
+command.txt
+
+# Go binaries and build output
+/bin/
+*.exe
+*.dll
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Databases
+*.db
+*.sqlite
+
+# OS Files
+.DS_Store
+Thumbs.db

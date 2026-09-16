@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -62,6 +63,70 @@ func UpdateStatus(db *pgxpool.Pool, jobID string, status string) error {
 	return nil
 }
 
+type JobDashboardResponse struct {
+	ID             string           `json:"id"`
+	Filename       string           `json:"filename"`
+	Status         string           `json:"status"`
+	CreatedAt      time.Time        `json:"created_at"`
+	Score          *int             `json:"score,omitempty"`
+}
+
+type JobDetailsResponse struct {
+	JobDashboardResponse
+	AnalysisResult *json.RawMessage `json:"analysis_result,omitempty"`
+}
+
+func GetJobDetails(db *pgxpool.Pool, jobID string) (JobDetailsResponse, error) {
+	var resp JobDetailsResponse
+
+	err := db.QueryRow(
+		context.Background(),
+		`SELECT j.job_id, s.original_filename, j.status, j.created_at
+		 FROM jobs j
+		 JOIN samples s ON j.file_id = s.sample_id
+		 WHERE j.job_id = $1`,
+		jobID,
+	).Scan(
+		&resp.ID,
+		&resp.Filename,
+		&resp.Status,
+		&resp.CreatedAt,
+	)
+
+	if err != nil {
+		return JobDetailsResponse{}, err
+	}
+	
+	// Try to get analysis result data
+	var resultData []byte
+	err = db.QueryRow(
+		context.Background(),
+		`SELECT result_data
+		 FROM analysis_results
+		 WHERE job_id = $1
+		 ORDER BY completed_at DESC NULLS LAST, started_at DESC NULLS LAST
+		 LIMIT 1`,
+		jobID,
+	).Scan(&resultData)
+	
+	if err == nil && len(resultData) > 0 {
+		raw := json.RawMessage(resultData)
+		resp.AnalysisResult = &raw
+		
+		// Extract score from raw JSON to populate the embedded JobDashboardResponse's Score
+		var temp struct {
+			ThreatScore struct {
+				Score int `json:"score"`
+			} `json:"threat_score"`
+		}
+		if json.Unmarshal(resultData, &temp) == nil {
+			resp.Score = &temp.ThreatScore.Score
+		}
+	}
+
+	return resp, nil
+}
+
 func GetJob(db *pgxpool.Pool, jobID string) (storage.Job, error) {
 	var job storage.Job
 
@@ -89,32 +154,32 @@ func GetJob(db *pgxpool.Pool, jobID string) (storage.Job, error) {
 	return job, nil
 }
 
-func GetMultipleJobs(db *pgxpool.Pool) ([]storage.Job, error) {
+func GetMultipleJobs(db *pgxpool.Pool) ([]JobDashboardResponse, error) {
 	rows, err := db.Query(
 		context.Background(),
-		`SELECT job_id, file_id, type, status, attempt_count, error_message, created_at, updated_at
-		 FROM jobs
-		 ORDER BY created_at DESC`,
+		`SELECT j.job_id, s.original_filename, j.status, j.created_at, 
+		        (ar.result_data->'threat_score'->>'score')::int as score
+		 FROM jobs j
+		 JOIN samples s ON j.file_id = s.sample_id
+		 LEFT JOIN analysis_results ar ON ar.job_id = j.job_id
+		 ORDER BY j.created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var jobs []storage.Job
+	var jobs []JobDashboardResponse
 
 	for rows.Next() {
-		var job storage.Job
+		var job JobDashboardResponse
 
 		err := rows.Scan(
-			&job.JobID,
-			&job.FileID,
-			&job.Type,
+			&job.ID,
+			&job.Filename,
 			&job.Status,
-			&job.JobAttempts,
-			&job.ErrorMessage,
 			&job.CreatedAt,
-			&job.UpdatedAt,
+			&job.Score,
 		)
 		if err != nil {
 			return nil, err

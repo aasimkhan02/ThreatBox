@@ -128,9 +128,10 @@ func RunAnalysisForJob(
 		telemetryFileName,
 	)
 
-	// Use the existing analyzer. Nothing inside the analyzer,
-	// IOC extraction, MITRE mapping, or scoring is changed here.
-	result, err := engine.Analyze(telemetryPath, nil)
+	// Run the analyzer with the original uploaded filename as an additional
+	// sample-identity hint. The sandbox may still present the guest copy as
+	// sample.exe; the analyzer accepts either representation.
+	result, err := engine.Analyze(telemetryPath, nil, sample.OriginalFileName)
 	if err != nil {
 		return mitre.AnalysisOutput{}, fmt.Errorf(
 			"analysis failed for job %s: %w",
