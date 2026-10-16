@@ -30,7 +30,6 @@ const Dashboard = ({
     'File System',
     'Network',
     'DNS',
-    'Registry',
     'Modules',
     'MITRE ATT&CK',
     'IOCs',
@@ -1736,8 +1735,484 @@ const Dashboard = ({
             </div>
           )}
 
+          {/* ===================== NETWORK TAB CONTENT ===================== */}
+          {activeTab === 'Network' && (
+            <div className="network-tab-layout">
+              {/* Top Stat Cards Row */}
+              <div className="network-stats-strip">
+                <div className="dashboard-card net-stat-box">
+                  <div className="net-stat-icon-wrap icon-blue-bg">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="2" y1="12" x2="22" y2="12" />
+                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                    </svg>
+                  </div>
+                  <div className="net-stat-info">
+                    <span className="net-stat-label">Total Connections</span>
+                    <span className="net-stat-val">14</span>
+                  </div>
+                </div>
+
+                <div className="dashboard-card net-stat-box">
+                  <div className="net-stat-icon-wrap icon-blue-bg">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="18" cy="5" r="3" />
+                      <circle cx="6" cy="12" r="3" />
+                      <circle cx="18" cy="19" r="3" />
+                      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                    </svg>
+                  </div>
+                  <div className="net-stat-info">
+                    <span className="net-stat-label">Unique Domains</span>
+                    <span className="net-stat-val">6</span>
+                  </div>
+                </div>
+
+                <div className="dashboard-card net-stat-box">
+                  <div className="net-stat-icon-wrap icon-purple-bg">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                      <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                      <line x1="6" y1="6" x2="6.01" y2="6" />
+                      <line x1="6" y1="18" x2="6.01" y2="18" />
+                    </svg>
+                  </div>
+                  <div className="net-stat-info">
+                    <span className="net-stat-label">Unique IPs</span>
+                    <span className="net-stat-val">8</span>
+                  </div>
+                </div>
+
+                <div className="dashboard-card net-stat-box">
+                  <div className="net-stat-icon-wrap icon-red-bg">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="12" y1="19" x2="12" y2="5" />
+                      <polyline points="5 12 12 5 19 12" />
+                    </svg>
+                  </div>
+                  <div className="net-stat-info">
+                    <span className="net-stat-label">Data Sent</span>
+                    <span className="net-stat-val">1.2 MB</span>
+                  </div>
+                </div>
+
+                <div className="dashboard-card net-stat-box">
+                  <div className="net-stat-icon-wrap icon-green-bg">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <polyline points="19 12 12 19 5 12" />
+                    </svg>
+                  </div>
+                  <div className="net-stat-info">
+                    <span className="net-stat-label">Data Received</span>
+                    <span className="net-stat-val">5.6 MB</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Main Content Split: Left Table vs Right Sidebar Widgets */}
+              <div className="net-split-grid">
+                {/* Left: Network Connections Table Card */}
+                <div className="dashboard-card net-main-table-card">
+                  <div className="net-table-header-row">
+                    <div className="net-title-with-desc">
+                      <span className="net-lead-icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="10" />
+                          <line x1="2" y1="12" x2="22" y2="12" />
+                          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                        </svg>
+                      </span>
+                      <div className="net-title-text-wrap">
+                        <span className="net-card-title">Network Connections</span>
+                        <span className="net-card-subtitle">All outbound and inbound network activity.</span>
+                      </div>
+                    </div>
+
+                    <div className="net-table-header-tools">
+                      <div className="net-search-box">
+                        <span className="net-search-icon">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="11" cy="11" r="8" />
+                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                          </svg>
+                        </span>
+                        <input
+                          type="text"
+                          placeholder="Search by domain, IP, or port..."
+                          className="net-search-input"
+                        />
+                      </div>
+
+                      <div className="net-filter-dropdown">
+                        <span>All Protocols</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Table */}
+                  <div className="net-table-wrapper">
+                    <table className="net-connections-table">
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Direction</th>
+                          <th>Domain / IP</th>
+                          <th>Port</th>
+                          <th>Protocol</th>
+                          <th>Bytes Sent</th>
+                          <th>Bytes Received</th>
+                          <th>Reputation</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {/* 1 */}
+                        <tr>
+                          <td>14:22:10</td>
+                          <td>
+                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
+                          </td>
+                          <td className="net-target-cell font-semibold">api.example.com</td>
+                          <td>443</td>
+                          <td>HTTPS</td>
+                          <td>24 KB</td>
+                          <td>312 KB</td>
+                          <td><span className="badge-rep-malicious">Malicious</span></td>
+                        </tr>
+
+                        {/* 2 */}
+                        <tr>
+                          <td>14:22:12</td>
+                          <td>
+                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
+                          </td>
+                          <td className="net-target-cell mono-font">185.199.110.43</td>
+                          <td>80</td>
+                          <td>HTTP</td>
+                          <td>4 KB</td>
+                          <td>0 B</td>
+                          <td><span className="badge-rep-suspicious">Suspicious</span></td>
+                        </tr>
+
+                        {/* 3 */}
+                        <tr>
+                          <td>14:22:14</td>
+                          <td>
+                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
+                          </td>
+                          <td className="net-target-cell font-semibold">cdn.example.net</td>
+                          <td>443</td>
+                          <td>HTTPS</td>
+                          <td>8 KB</td>
+                          <td>1.1 MB</td>
+                          <td><span className="badge-rep-suspicious">Suspicious</span></td>
+                        </tr>
+
+                        {/* 4 */}
+                        <tr>
+                          <td>14:22:18</td>
+                          <td>
+                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
+                          </td>
+                          <td className="net-target-cell mono-font">91.213.21.34</td>
+                          <td>53</td>
+                          <td>DNS</td>
+                          <td>512 B</td>
+                          <td>1.2 KB</td>
+                          <td><span className="badge-rep-unknown">Unknown</span></td>
+                        </tr>
+
+                        {/* 5 */}
+                        <tr>
+                          <td>14:22:21</td>
+                          <td>
+                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
+                          </td>
+                          <td className="net-target-cell">update.microsoft.com</td>
+                          <td>443</td>
+                          <td>HTTPS</td>
+                          <td>16 KB</td>
+                          <td>220 KB</td>
+                          <td><span className="badge-rep-benign">Benign</span></td>
+                        </tr>
+
+                        {/* 6 */}
+                        <tr>
+                          <td>14:22:25</td>
+                          <td>
+                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
+                          </td>
+                          <td className="net-target-cell mono-font">185.220.101.12</td>
+                          <td>8080</td>
+                          <td>HTTP</td>
+                          <td>2 KB</td>
+                          <td>12 KB</td>
+                          <td><span className="badge-rep-malicious">Malicious</span></td>
+                        </tr>
+
+                        {/* 7 */}
+                        <tr>
+                          <td>14:22:27</td>
+                          <td>
+                            <span className="dir-arrow arrow-down" title="Inbound">↓</span>
+                          </td>
+                          <td className="net-target-cell mono-font">104.18.31.12</td>
+                          <td>443</td>
+                          <td>HTTPS</td>
+                          <td>0 B</td>
+                          <td>420 KB</td>
+                          <td><span className="badge-rep-suspicious">Suspicious</span></td>
+                        </tr>
+
+                        {/* 8 */}
+                        <tr>
+                          <td>14:22:31</td>
+                          <td>
+                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
+                          </td>
+                          <td className="net-target-cell">ntp.windows.com</td>
+                          <td>123</td>
+                          <td>NTP</td>
+                          <td>84 B</td>
+                          <td>84 B</td>
+                          <td><span className="badge-rep-benign">Benign</span></td>
+                        </tr>
+
+                        {/* 9 */}
+                        <tr>
+                          <td>14:22:33</td>
+                          <td>
+                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
+                          </td>
+                          <td className="net-target-cell mono-font">142.250.190.78</td>
+                          <td>443</td>
+                          <td>HTTPS</td>
+                          <td>6 KB</td>
+                          <td>380 KB</td>
+                          <td><span className="badge-rep-unknown">Unknown</span></td>
+                        </tr>
+
+                        {/* 10 */}
+                        <tr>
+                          <td>14:22:35</td>
+                          <td>
+                            <span className="dir-arrow arrow-down" title="Inbound">↓</span>
+                          </td>
+                          <td className="net-target-cell mono-font">8.8.8.8</td>
+                          <td>53</td>
+                          <td>DNS</td>
+                          <td>512 B</td>
+                          <td>1.1 KB</td>
+                          <td><span className="badge-rep-benign">Benign</span></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination Footer */}
+                  <div className="net-pagination-footer">
+                    <span className="net-pagination-info">Showing 1 to 10 of 14 connections</span>
+                    <div className="net-pagination-controls">
+                      <button type="button" className="btn-page-arrow" disabled>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="15 18 9 12 15 6" />
+                        </svg>
+                      </button>
+                      <button type="button" className="btn-page-number active">1</button>
+                      <button type="button" className="btn-page-number">2</button>
+                      <button type="button" className="btn-page-arrow">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="9 18 15 12 9 6" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Widgets Column */}
+                <div className="net-widgets-col">
+                  {/* Widget 1: Destination Countries */}
+                  <div className="dashboard-card net-widget-card">
+                    <h4 className="net-widget-title">Destination Countries</h4>
+                    <div className="net-world-map-wrapper">
+                      {/* Stylized SVG World Map */}
+                      <svg viewBox="0 0 380 180" className="net-world-map-svg">
+                        <path
+                          className="map-continent"
+                          d="M 40 45 Q 60 30 85 45 Q 110 50 115 75 Q 90 90 75 75 Z"
+                          fill="#E5E9F0"
+                        />
+                        <path
+                          className="map-continent"
+                          d="M 85 90 Q 110 95 105 135 Q 90 155 75 120 Z"
+                          fill="#E5E9F0"
+                        />
+                        <path
+                          className="map-continent"
+                          d="M 160 35 Q 195 25 210 45 Q 200 70 170 65 Z"
+                          fill="#E5E9F0"
+                        />
+                        <path
+                          className="map-continent"
+                          d="M 165 75 Q 205 75 200 125 Q 180 145 165 110 Z"
+                          fill="#E5E9F0"
+                        />
+                        <path
+                          className="map-continent"
+                          d="M 220 30 Q 310 20 325 65 Q 290 95 235 75 Z"
+                          fill="#E5E9F0"
+                        />
+                        <path
+                          className="map-continent"
+                          d="M 280 115 Q 325 110 320 145 Q 285 150 280 125 Z"
+                          fill="#E5E9F0"
+                        />
+
+                        {/* Ping / Marker on United States */}
+                        <circle cx="82" cy="58" r="14" fill="#EF4444" fillOpacity="0.2" />
+                        <circle cx="82" cy="58" r="5" fill="#EF4444" />
+                        <circle cx="82" cy="58" r="2" fill="#FFFFFF" />
+
+                        {/* Ping / Marker on Europe */}
+                        <circle cx="185" cy="48" r="4" fill="#F59E0B" />
+
+                        {/* Ping / Marker on East Asia / Singapore */}
+                        <circle cx="270" cy="98" r="5" fill="#10B981" />
+                      </svg>
+                    </div>
+
+                    <div className="net-countries-legend-grid">
+                      <div className="country-legend-item">
+                        <span className="legend-dot-country dot-red"></span>
+                        <span className="country-name-txt">United States</span>
+                        <span className="country-count-txt">6</span>
+                      </div>
+                      <div className="country-legend-item">
+                        <span className="legend-dot-country dot-green"></span>
+                        <span className="country-name-txt">Singapore</span>
+                        <span className="country-count-txt">1</span>
+                      </div>
+                      <div className="country-legend-item">
+                        <span className="legend-dot-country dot-orange"></span>
+                        <span className="country-name-txt">Germany</span>
+                        <span className="country-count-txt">3</span>
+                      </div>
+                      <div className="country-legend-item">
+                        <span className="legend-dot-country dot-grey"></span>
+                        <span className="country-name-txt">Unknown</span>
+                        <span className="country-count-txt">2</span>
+                      </div>
+                      <div className="country-legend-item">
+                        <span className="legend-dot-country dot-yellow"></span>
+                        <span className="country-name-txt">Netherlands</span>
+                        <span className="country-count-txt">2</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Widget 2: Top Domains */}
+                  <div className="dashboard-card net-widget-card">
+                    <h4 className="net-widget-title">Top Domains</h4>
+                    <div className="net-progress-bars-list">
+                      <div className="net-progress-row">
+                        <span className="prog-item-name">api.example.com</span>
+                        <div className="prog-track">
+                          <div className="prog-bar bg-red" style={{ width: '85%' }}></div>
+                        </div>
+                        <span className="prog-count-val">6</span>
+                      </div>
+
+                      <div className="net-progress-row">
+                        <span className="prog-item-name">cdn.example.net</span>
+                        <div className="prog-track">
+                          <div className="prog-bar bg-orange" style={{ width: '60%' }}></div>
+                        </div>
+                        <span className="prog-count-val">4</span>
+                      </div>
+
+                      <div className="net-progress-row">
+                        <span className="prog-item-name">update.microsoft.com</span>
+                        <div className="prog-track">
+                          <div className="prog-bar bg-yellow" style={{ width: '35%' }}></div>
+                        </div>
+                        <span className="prog-count-val">2</span>
+                      </div>
+
+                      <div className="net-progress-row">
+                        <span className="prog-item-name">ntp.windows.com</span>
+                        <div className="prog-track">
+                          <div className="prog-bar bg-teal" style={{ width: '20%' }}></div>
+                        </div>
+                        <span className="prog-count-val">1</span>
+                      </div>
+
+                      <div className="net-progress-row">
+                        <span className="prog-item-name">Others</span>
+                        <div className="prog-track">
+                          <div className="prog-bar bg-grey" style={{ width: '45%' }}></div>
+                        </div>
+                        <span className="prog-count-val">3</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Widget 3: Top IP Addresses */}
+                  <div className="dashboard-card net-widget-card">
+                    <h4 className="net-widget-title">Top IP Addresses</h4>
+                    <div className="net-progress-bars-list">
+                      <div className="net-progress-row">
+                        <span className="prog-item-name mono-font">185.199.110.43</span>
+                        <div className="prog-track">
+                          <div className="prog-bar bg-red" style={{ width: '80%' }}></div>
+                        </div>
+                        <span className="prog-count-val">4</span>
+                      </div>
+
+                      <div className="net-progress-row">
+                        <span className="prog-item-name mono-font">104.18.31.12</span>
+                        <div className="prog-track">
+                          <div className="prog-bar bg-orange" style={{ width: '60%' }}></div>
+                        </div>
+                        <span className="prog-count-val">3</span>
+                      </div>
+
+                      <div className="net-progress-row">
+                        <span className="prog-item-name mono-font">91.213.21.34</span>
+                        <div className="prog-track">
+                          <div className="prog-bar bg-yellow" style={{ width: '45%' }}></div>
+                        </div>
+                        <span className="prog-count-val">2</span>
+                      </div>
+
+                      <div className="net-progress-row">
+                        <span className="prog-item-name mono-font">142.250.190.78</span>
+                        <div className="prog-track">
+                          <div className="prog-bar bg-teal" style={{ width: '25%' }}></div>
+                        </div>
+                        <span className="prog-count-val">1</span>
+                      </div>
+
+                      <div className="net-progress-row">
+                        <span className="prog-item-name">Others</span>
+                        <div className="prog-track">
+                          <div className="prog-bar bg-grey" style={{ width: '60%' }}></div>
+                        </div>
+                        <span className="prog-count-val">3</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Placeholder for other tabs */}
-          {activeTab !== 'Overview' && activeTab !== 'Behavior' && activeTab !== 'Processes' && activeTab !== 'File System' && (
+          {activeTab !== 'Overview' && activeTab !== 'Behavior' && activeTab !== 'Processes' && activeTab !== 'File System' && activeTab !== 'Network' && (
             <div className="dashboard-card" style={{ padding: '3.5rem', textAlign: 'center' }}>
               <h3 style={{ fontSize: '1.2rem', color: '#111418', marginBottom: '0.5rem' }}>{activeTab} Telemetry</h3>
               <p style={{ color: '#727a85', fontSize: '0.9rem' }}>Detailed inspection logs for {activeTab} will appear here.</p>

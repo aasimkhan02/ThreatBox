@@ -1713,5 +1713,934 @@
   }
 }
 
+/* ==========================================================================
+   FILE SYSTEM TAB STYLING
+   ========================================================================== */
+.filesystem-tab-layout {
+  display: grid;
+  grid-template-columns: 1fr 370px;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.filesystem-main-card {
+  padding: 1.25rem 1.5rem;
+}
+
+.fs-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.fs-title-with-desc {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.fs-icon-lead {
+  color: #111418;
+  display: flex;
+  align-items: center;
+}
+
+.fs-title-text-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.fs-card-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #111418;
+}
+
+.fs-card-subtitle {
+  font-size: 0.8rem;
+  color: #727a85;
+}
+
+.fs-header-right-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.fs-search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.fs-search-icon {
+  position: absolute;
+  left: 0.75rem;
+  color: #8c939e;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.fs-search-input {
+  padding: 0.45rem 0.85rem 0.45rem 2.2rem;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background-color: #FFFFFF;
+  font-size: 0.82rem;
+  color: #111418;
+  outline: none;
+  width: 180px;
+  transition: border-color 0.15s ease;
+}
+
+.fs-search-input:focus {
+  border-color: #111418;
+}
+
+.fs-action-filter-dropdown {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background-color: #FFFFFF;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+}
+
+.fs-action-filter-dropdown:hover {
+  background-color: #F9FAFB;
+}
+
+.fs-legend-dots {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.fs-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: #374151;
+  font-weight: 500;
+}
+
+.fs-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.fs-dot-created {
+  background-color: #10B981;
+}
+
+.fs-dot-modified {
+  background-color: #F59E0B;
+}
+
+.fs-dot-deleted {
+  background-color: #EF4444;
+}
+
+/* Table styles */
+.fs-table-wrap {
+  overflow-x: auto;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.fs-activity-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.fs-activity-table thead th {
+  text-align: left;
+  padding: 0.75rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  white-space: nowrap;
+}
+
+.fs-activity-table tbody td {
+  padding: 0.65rem 0.85rem;
+  color: #374151;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.fs-activity-table tbody tr {
+  transition: background-color 0.12s ease;
+  cursor: pointer;
+}
+
+.fs-activity-table tbody tr:hover {
+  background-color: #F9FAFB;
+}
+
+.fs-activity-table tbody tr.row-selected-fs {
+  background-color: #F0FDF4;
+}
+
+.fs-path-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.fs-file-icon {
+  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+}
+
+.fs-path-text {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.78rem;
+  color: #374151;
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fs-dim-text {
+  color: #9CA3AF;
+}
+
+.fs-chevron-cell {
+  color: #9CA3AF;
+  text-align: right;
+  padding-right: 0.5rem;
+}
+
+/* Badges */
+.badge-fs-created {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.65rem;
+  border-radius: 9999px;
+  background-color: #DEF7EC;
+  color: #03543F;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.badge-fs-modified {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.65rem;
+  border-radius: 9999px;
+  background-color: #FEF3C7;
+  color: #D97706;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.badge-fs-deleted {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.65rem;
+  border-radius: 9999px;
+  background-color: #FDE8E8;
+  color: #9B1C1C;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* Pagination */
+.fs-pagination-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 1rem;
+  font-size: 0.78rem;
+  color: #6B7280;
+}
+
+.fs-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.btn-page-arrow,
+.btn-page-number {
+  min-width: 28px;
+  height: 28px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  background-color: #FFFFFF;
+  color: #374151;
+  font-size: 0.78rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-page-arrow:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-page-number.active {
+  background-color: #111418;
+  color: #FFFFFF;
+  border-color: #111418;
+}
+
+.btn-page-number:hover:not(.active),
+.btn-page-arrow:hover:not(:disabled) {
+  background-color: #F9FAFB;
+}
+
+/* File Inspection Right Panel */
+.fs-detail-panel {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  border-radius: 14px;
+}
+
+.fs-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.fs-detail-file-title-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.fs-detail-icon {
+  color: #111418;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.fs-detail-filename {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #111418;
+  margin: 0;
+}
+
+.fs-detail-filepath {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  color: #6B7280;
+  margin: 0.2rem 0 0 0;
+  word-break: break-all;
+  line-height: 1.35;
+}
+
+.btn-close-fs-detail {
+  background: none;
+  border: none;
+  color: #6B7280;
+  cursor: pointer;
+  padding: 0.2rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-close-fs-detail:hover {
+  color: #111418;
+  background-color: #F3F4F6;
+}
+
+.fs-detail-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  padding: 0.85rem 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.fs-detail-stat-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.fs-stat-label {
+  font-size: 0.74rem;
+  color: #6B7280;
+  font-weight: 500;
+}
+
+.fs-stat-val {
+  font-size: 0.82rem;
+  color: #111418;
+  font-weight: 600;
+}
+
+.fs-section-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.fs-section-subtitle {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #111418;
+  margin: 0;
+}
+
+.fs-kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.fs-kv-row {
+  display: flex;
+  align-items: center;
+  font-size: 0.8rem;
+}
+
+.fs-kv-key {
+  width: 95px;
+  flex-shrink: 0;
+  color: #6B7280;
+  font-weight: 500;
+}
+
+.fs-kv-val {
+  color: #111418;
+  font-weight: 500;
+}
+
+.fs-hash-copy-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 1;
+  overflow: hidden;
+}
+
+.fs-hash-copy-wrap .truncate-hash {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fs-classification-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.fs-classification-label {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #111418;
+}
+
+.fs-yara-pill-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0.85rem;
+  border-radius: 8px;
+  background-color: #F9FAFB;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  color: #374151;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fs-yara-pill-row:hover {
+  background-color: #F3F4F6;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.fs-yara-name {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 1200px) {
+  .filesystem-tab-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==========================================================================
+   NETWORK TAB STYLING
+   ========================================================================== */
+.network-tab-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Top Stat Cards Strip */
+.network-stats-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1.25rem;
+}
+
+.net-stat-box {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.15rem 1.25rem;
+  border-radius: 12px;
+}
+
+.net-stat-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.icon-blue-bg {
+  background-color: #EFF6FF;
+  color: #2563EB;
+}
+
+.icon-purple-bg {
+  background-color: #F5F3FF;
+  color: #7C3AED;
+}
+
+.icon-red-bg {
+  background-color: #FEF2F2;
+  color: #EF4444;
+}
+
+.icon-green-bg {
+  background-color: #ECFDF5;
+  color: #10B981;
+}
+
+.net-stat-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.net-stat-label {
+  font-size: 0.78rem;
+  color: #6B7280;
+  font-weight: 500;
+}
+
+.net-stat-val {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #111418;
+  line-height: 1.1;
+}
+
+/* Split: Table vs Widgets Column */
+.net-split-grid {
+  display: grid;
+  grid-template-columns: 1fr 370px;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.net-main-table-card {
+  padding: 1.25rem 1.5rem;
+}
+
+.net-table-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.net-title-with-desc {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.net-lead-icon {
+  color: #111418;
+  display: flex;
+  align-items: center;
+}
+
+.net-title-text-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.net-card-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #111418;
+}
+
+.net-card-subtitle {
+  font-size: 0.8rem;
+  color: #727a85;
+}
+
+.net-table-header-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.net-search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.net-search-icon {
+  position: absolute;
+  left: 0.75rem;
+  color: #8c939e;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.net-search-input {
+  padding: 0.45rem 0.85rem 0.45rem 2.2rem;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background-color: #FFFFFF;
+  font-size: 0.82rem;
+  color: #111418;
+  outline: none;
+  width: 210px;
+  transition: border-color 0.15s ease;
+}
+
+.net-search-input:focus {
+  border-color: #111418;
+}
+
+.net-filter-dropdown {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background-color: #FFFFFF;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+}
+
+.net-filter-dropdown:hover {
+  background-color: #F9FAFB;
+}
+
+/* Connections Table */
+.net-table-wrapper {
+  overflow-x: auto;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.net-connections-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.net-connections-table thead th {
+  text-align: left;
+  padding: 0.75rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  white-space: nowrap;
+}
+
+.net-connections-table tbody td {
+  padding: 0.7rem 0.85rem;
+  color: #374151;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.net-connections-table tbody tr:hover {
+  background-color: #F9FAFB;
+}
+
+.dir-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.dir-arrow.arrow-up {
+  color: #EF4444;
+}
+
+.dir-arrow.arrow-down {
+  color: #10B981;
+}
+
+.net-target-cell {
+  color: #111418;
+}
+
+.net-target-cell.mono-font {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.78rem;
+  color: #374151;
+}
+
+/* Reputation badges */
+.badge-rep-malicious {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.65rem;
+  border-radius: 9999px;
+  background-color: #FDE8E8;
+  color: #9B1C1C;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.badge-rep-suspicious {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.65rem;
+  border-radius: 9999px;
+  background-color: #FEF3C7;
+  color: #D97706;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.badge-rep-benign {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.65rem;
+  border-radius: 9999px;
+  background-color: #DEF7EC;
+  color: #03543F;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.badge-rep-unknown {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.65rem;
+  border-radius: 9999px;
+  background-color: #F3F4F6;
+  color: #6B7280;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* Network Pagination */
+.net-pagination-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 1rem;
+  font-size: 0.78rem;
+  color: #6B7280;
+}
+
+.net-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* Widgets Column on Right */
+.net-widgets-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.net-widget-card {
+  padding: 1.35rem 1.5rem;
+  border-radius: 14px;
+}
+
+.net-widget-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #111418;
+  margin: 0 0 1rem 0;
+}
+
+/* World Map Widget */
+.net-world-map-wrapper {
+  background-color: #F9FAFB;
+  border-radius: 8px;
+  padding: 0.5rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.net-world-map-svg {
+  width: 100%;
+  height: auto;
+  max-height: 140px;
+}
+
+.net-countries-legend-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  row-gap: 0.65rem;
+  column-gap: 1rem;
+}
+
+.country-legend-item {
+  display: flex;
+  align-items: center;
+  font-size: 0.78rem;
+  color: #374151;
+}
+
+.legend-dot-country {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 0.45rem;
+  flex-shrink: 0;
+}
+
+.dot-red { background-color: #EF4444; }
+.dot-green { background-color: #10B981; }
+.dot-orange { background-color: #F59E0B; }
+.dot-yellow { background-color: #EAB308; }
+.dot-grey { background-color: #9CA3AF; }
+
+.country-name-txt {
+  flex: 1;
+  color: #4B5563;
+}
+
+.country-count-txt {
+  color: #111418;
+  font-weight: 600;
+}
+
+/* Progress bars list for Top Domains and IPs */
+.net-progress-bars-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.net-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  font-size: 0.8rem;
+}
+
+.prog-item-name {
+  width: 140px;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prog-item-name.mono-font {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.76rem;
+}
+
+.prog-track {
+  flex: 1;
+  height: 6px;
+  background-color: #F3F4F6;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.prog-bar {
+  height: 100%;
+  border-radius: 9999px;
+}
+
+.prog-bar.bg-red { background-color: #EF4444; }
+.prog-bar.bg-orange { background-color: #F97316; }
+.prog-bar.bg-yellow { background-color: #FBBF24; }
+.prog-bar.bg-teal { background-color: #14B8A6; }
+.prog-bar.bg-grey { background-color: #9CA3AF; }
+
+.prog-count-val {
+  width: 18px;
+  text-align: right;
+  font-weight: 600;
+  color: #374151;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 1200px) {
+  .network-stats-strip {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .net-split-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .network-stats-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+
+
 
 
