@@ -2211,8 +2211,1846 @@ const Dashboard = ({
             </div>
           )}
 
-          {/* Placeholder for other tabs */}
-          {activeTab !== 'Overview' && activeTab !== 'Behavior' && activeTab !== 'Processes' && activeTab !== 'File System' && activeTab !== 'Network' && (
+          {/* ===================== DNS TAB CONTENT ===================== */}
+          {activeTab === 'DNS' && (
+            <div className="dns-tab-layout">
+              {/* Left Column: DNS Queries Main Card */}
+              <div className="dashboard-card dns-main-card">
+                <div className="dns-header-row">
+                  <div className="dns-title-with-desc">
+                    <span className="dns-lead-icon">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="2" y1="12" x2="22" y2="12" />
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                      </svg>
+                    </span>
+                    <div className="dns-title-text-wrap">
+                      <span className="dns-card-title">DNS Queries</span>
+                      <span className="dns-card-subtitle">Domain name queries made during execution.</span>
+                    </div>
+                  </div>
+
+                  <div className="dns-header-right-tools">
+                    <div className="dns-search-box">
+                      <span className="dns-search-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="11" cy="11" r="8" />
+                          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        </svg>
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Search domains..."
+                        className="dns-search-input"
+                      />
+                    </div>
+
+                    <div className="dns-filter-dropdown">
+                      <span>All Types</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="dns-table-wrapper">
+                  <table className="dns-queries-table">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Domain</th>
+                        <th>Type</th>
+                        <th>Resolved IP</th>
+                        <th>Query Count</th>
+                        <th>Reputation</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* 1 */}
+                      <tr>
+                        <td>00:02:14</td>
+                        <td className="dns-domain-bold">api.example.com</td>
+                        <td className="dns-type-cell">A</td>
+                        <td className="dns-ip-mono">185.199.110.43</td>
+                        <td>3</td>
+                        <td><span className="badge-rep-malicious">Malicious</span></td>
+                      </tr>
+
+                      {/* 2 */}
+                      <tr>
+                        <td>00:02:16</td>
+                        <td className="dns-domain-bold">cdn.example.net</td>
+                        <td className="dns-type-cell">A</td>
+                        <td className="dns-ip-mono">91.213.21.34</td>
+                        <td>2</td>
+                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
+                      </tr>
+
+                      {/* 3 */}
+                      <tr>
+                        <td>00:02:19</td>
+                        <td className="dns-domain-bold">update.microsoft.com</td>
+                        <td className="dns-type-cell">A</td>
+                        <td className="dns-ip-mono">104.18.31.12</td>
+                        <td>1</td>
+                        <td><span className="badge-rep-benign">Benign</span></td>
+                      </tr>
+
+                      {/* 4 */}
+                      <tr>
+                        <td>00:02:21</td>
+                        <td className="dns-domain-bold">ntp.windows.com</td>
+                        <td className="dns-type-cell">A</td>
+                        <td className="dns-ip-mono">20.189.173.8</td>
+                        <td>1</td>
+                        <td><span className="badge-rep-benign">Benign</span></td>
+                      </tr>
+
+                      {/* 5 */}
+                      <tr>
+                        <td>00:02:24</td>
+                        <td className="dns-domain-bold">track.example.org</td>
+                        <td className="dns-type-cell">A</td>
+                        <td className="dns-ip-mono">142.250.190.78</td>
+                        <td>4</td>
+                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
+                      </tr>
+
+                      {/* 6 */}
+                      <tr>
+                        <td>00:02:27</td>
+                        <td className="dns-domain-bold">malicious-domain.xyz</td>
+                        <td className="dns-type-cell">A</td>
+                        <td className="dns-ip-mono">8.8.8.8</td>
+                        <td>1</td>
+                        <td><span className="badge-rep-malicious">Malicious</span></td>
+                      </tr>
+
+                      {/* 7 */}
+                      <tr>
+                        <td>00:02:31</td>
+                        <td className="dns-domain-bold">data.example.com</td>
+                        <td className="dns-type-cell">A</td>
+                        <td className="dns-ip-mono">185.220.101.12</td>
+                        <td>3</td>
+                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
+                      </tr>
+
+                      {/* 8 */}
+                      <tr>
+                        <td>00:02:34</td>
+                        <td className="dns-domain-bold">staging.example.net</td>
+                        <td className="dns-type-cell">A</td>
+                        <td className="dns-ip-mono">93.184.216.34</td>
+                        <td>1</td>
+                        <td><span className="badge-rep-unknown">Unknown</span></td>
+                      </tr>
+
+                      {/* 9 */}
+                      <tr>
+                        <td>00:02:36</td>
+                        <td className="dns-domain-bold">detectportal.firefox.com</td>
+                        <td className="dns-type-cell">A</td>
+                        <td className="dns-ip-mono">34.107.221.82</td>
+                        <td>1</td>
+                        <td><span className="badge-rep-benign">Benign</span></td>
+                      </tr>
+
+                      {/* 10 */}
+                      <tr>
+                        <td>00:02:41</td>
+                        <td className="dns-domain-bold">schemas.microsoft.com</td>
+                        <td className="dns-type-cell">A</td>
+                        <td className="dns-ip-mono">23.48.99.120</td>
+                        <td>1</td>
+                        <td><span className="badge-rep-benign">Benign</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                <div className="dns-pagination-footer">
+                  <span className="dns-pagination-info">Showing 1 to 10 of 18 domains</span>
+                  <div className="dns-pagination-controls">
+                    <button type="button" className="btn-page-arrow" disabled>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="15 18 9 12 15 6" />
+                      </svg>
+                    </button>
+                    <button type="button" className="btn-page-number active">1</button>
+                    <button type="button" className="btn-page-number">2</button>
+                    <button type="button" className="btn-page-arrow">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Widgets */}
+              <div className="dns-widgets-col">
+                {/* 1. DNS Summary Card */}
+                <div className="dashboard-card dns-widget-card">
+                  <div className="dns-widget-title-row">
+                    <span className="dns-title-icon">
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                        <line x1="8" y1="21" x2="16" y2="21" />
+                        <line x1="12" y1="17" x2="12" y2="21" />
+                      </svg>
+                    </span>
+                    <h4 className="dns-widget-title">DNS Summary</h4>
+                  </div>
+
+                  <div className="dns-summary-mini-grid">
+                    {/* Total Queries */}
+                    <div className="dns-mini-box">
+                      <div className="dns-mini-icon-wrap icon-blue-bg">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="10" />
+                          <line x1="2" y1="12" x2="22" y2="12" />
+                          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                        </svg>
+                      </div>
+                      <span className="dns-mini-num">18</span>
+                      <span className="dns-mini-txt">Total Queries</span>
+                    </div>
+
+                    {/* Unique Domains */}
+                    <div className="dns-mini-box">
+                      <div className="dns-mini-icon-wrap icon-blue-bg">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="18" cy="5" r="3" />
+                          <circle cx="6" cy="12" r="3" />
+                          <circle cx="18" cy="19" r="3" />
+                          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                        </svg>
+                      </div>
+                      <span className="dns-mini-num">6</span>
+                      <span className="dns-mini-txt">Unique Domains</span>
+                    </div>
+
+                    {/* Unique IPs */}
+                    <div className="dns-mini-box">
+                      <div className="dns-mini-icon-wrap icon-purple-bg">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                          <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                          <line x1="6" y1="6" x2="6.01" y2="6" />
+                          <line x1="6" y1="18" x2="6.01" y2="18" />
+                        </svg>
+                      </div>
+                      <span className="dns-mini-num">8</span>
+                      <span className="dns-mini-txt">Unique IPs</span>
+                    </div>
+
+                    {/* Suspicious Domains */}
+                    <div className="dns-mini-box">
+                      <div className="dns-mini-icon-wrap icon-yellow-bg">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                          <line x1="12" y1="9" x2="12" y2="13" />
+                          <line x1="12" y1="17" x2="12.01" y2="17" />
+                        </svg>
+                      </div>
+                      <span className="dns-mini-num">3</span>
+                      <span className="dns-mini-txt">Suspicious Domains</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Top Queried Domains Card */}
+                <div className="dashboard-card dns-widget-card">
+                  <div className="dns-widget-title-row between">
+                    <div className="dns-title-with-lead">
+                      <span className="dns-title-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                      </span>
+                      <h4 className="dns-widget-title">Top Queried Domains</h4>
+                    </div>
+                    <span className="dns-arrow-right">→</span>
+                  </div>
+
+                  <div className="dns-bars-header-row">
+                    <span>Domain</span>
+                    <span>Query Count</span>
+                  </div>
+
+                  <div className="dns-progress-bars-list">
+                    <div className="dns-progress-row">
+                      <span className="prog-domain-name">api.example.com</span>
+                      <div className="prog-track">
+                        <div className="prog-bar bg-red" style={{ width: '85%' }}></div>
+                      </div>
+                      <span className="prog-count-val">3</span>
+                    </div>
+
+                    <div className="dns-progress-row">
+                      <span className="prog-domain-name">data.example.com</span>
+                      <div className="prog-track">
+                        <div className="prog-bar bg-orange" style={{ width: '85%' }}></div>
+                      </div>
+                      <span className="prog-count-val">3</span>
+                    </div>
+
+                    <div className="dns-progress-row">
+                      <span className="prog-domain-name">cdn.example.net</span>
+                      <div className="prog-track">
+                        <div className="prog-bar bg-orange" style={{ width: '60%' }}></div>
+                      </div>
+                      <span className="prog-count-val">2</span>
+                    </div>
+
+                    <div className="dns-progress-row">
+                      <span className="prog-domain-name">update.microsoft.com</span>
+                      <div className="prog-track">
+                        <div className="prog-bar bg-yellow" style={{ width: '30%' }}></div>
+                      </div>
+                      <span className="prog-count-val">1</span>
+                    </div>
+
+                    <div className="dns-progress-row">
+                      <span className="prog-domain-name">ntp.windows.com</span>
+                      <div className="prog-track">
+                        <div className="prog-bar bg-grey" style={{ width: '30%' }}></div>
+                      </div>
+                      <span className="prog-count-val">1</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Top Resolved IPs Card */}
+                <div className="dashboard-card dns-widget-card">
+                  <div className="dns-widget-title-row between">
+                    <div className="dns-title-with-lead">
+                      <span className="dns-title-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                      </span>
+                      <h4 className="dns-widget-title">Top Resolved IPs</h4>
+                    </div>
+                    <span className="dns-arrow-right">→</span>
+                  </div>
+
+                  <div className="dns-bars-header-row">
+                    <span>IP Address</span>
+                    <span>Query Count</span>
+                  </div>
+
+                  <div className="dns-progress-bars-list">
+                    <div className="dns-progress-row">
+                      <span className="prog-domain-name mono-font">185.199.110.43</span>
+                      <div className="prog-track">
+                        <div className="prog-bar bg-red" style={{ width: '85%' }}></div>
+                      </div>
+                      <span className="prog-count-val">3</span>
+                    </div>
+
+                    <div className="dns-progress-row">
+                      <span className="prog-domain-name mono-font">185.220.101.12</span>
+                      <div className="prog-track">
+                        <div className="prog-bar bg-orange" style={{ width: '85%' }}></div>
+                      </div>
+                      <span className="prog-count-val">3</span>
+                    </div>
+
+                    <div className="dns-progress-row">
+                      <span className="prog-domain-name mono-font">91.213.21.34</span>
+                      <div className="prog-track">
+                        <div className="prog-bar bg-orange" style={{ width: '60%' }}></div>
+                      </div>
+                      <span className="prog-count-val">2</span>
+                    </div>
+
+                    <div className="dns-progress-row">
+                      <span className="prog-domain-name mono-font">104.18.31.12</span>
+                      <div className="prog-track">
+                        <div className="prog-bar bg-yellow" style={{ width: '30%' }}></div>
+                      </div>
+                      <span className="prog-count-val">1</span>
+                    </div>
+
+                    <div className="dns-progress-row">
+                      <span className="prog-domain-name mono-font">20.189.173.8</span>
+                      <div className="prog-track">
+                        <div className="prog-bar bg-grey" style={{ width: '30%' }}></div>
+                      </div>
+                      <span className="prog-count-val">1</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===================== MODULES TAB CONTENT ===================== */}
+          {activeTab === 'Modules' && (
+            <div className="modules-tab-content">
+              {/* 1. Loaded Modules Table Card */}
+              <div className="dashboard-card modules-main-card">
+                <div className="card-header-row modules-header-controls">
+                  <div className="card-title-with-desc">
+                    <span className="card-icon-lead">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="18" cy="5" r="3" />
+                        <circle cx="6" cy="12" r="3" />
+                        <circle cx="18" cy="19" r="3" />
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                      </svg>
+                    </span>
+                    <div className="title-desc-wrap">
+                      <span className="card-title-text">Loaded Modules</span>
+                      <span className="card-desc-sub">Modules observed in the sample's process activity.</span>
+                    </div>
+                  </div>
+
+                  <div className="modules-header-right-tools">
+                    <div className="modules-search-wrapper">
+                      <span className="search-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="11" cy="11" r="8" />
+                          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        </svg>
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Search modules..."
+                        className="modules-search-input"
+                      />
+                    </div>
+
+                    <div className="modules-filter-dropdown">
+                      <span>All Modules</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </div>
+
+                    <div className="modules-count-pill">
+                      <span>21 modules</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="modules-table-wrapper">
+                  <table className="modules-data-table">
+                    <thead>
+                      <tr>
+                        <th>Module</th>
+                        <th>Loaded By</th>
+                        <th>Image Path</th>
+                        <th>Base Address</th>
+                        <th>Size</th>
+                        <th>Signature</th>
+                        <th>SHA-256</th>
+                        <th>Risk</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* 1 */}
+                      <tr>
+                        <td>
+                          <div className="mod-name-cell">
+                            <span className="mod-file-icon">📄</span>
+                            <span className="mod-name-text">ntdll.dll</span>
+                          </div>
+                        </td>
+                        <td className="mod-loaded-text">sample_malware.exe</td>
+                        <td className="mod-path-text">C:\Windows\System32\ntdll.dll</td>
+                        <td className="mod-mono-cell">0x7ffb10000000</td>
+                        <td>1.8 MB</td>
+                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
+                        <td className="mod-mono-cell truncate-sha">3f2e5a9c0d7b...</td>
+                        <td><span className="badge-severity-low">Low</span></td>
+                      </tr>
+
+                      {/* 2 */}
+                      <tr>
+                        <td>
+                          <div className="mod-name-cell">
+                            <span className="mod-file-icon">📄</span>
+                            <span className="mod-name-text">kernel32.dll</span>
+                          </div>
+                        </td>
+                        <td className="mod-loaded-text">sample_malware.exe</td>
+                        <td className="mod-path-text">C:\Windows\System32\kernel32.dll</td>
+                        <td className="mod-mono-cell">0x7ffb11000000</td>
+                        <td>1.1 MB</td>
+                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
+                        <td className="mod-mono-cell truncate-sha">9a4c7d1e5b2f...</td>
+                        <td><span className="badge-severity-low">Low</span></td>
+                      </tr>
+
+                      {/* 3 */}
+                      <tr>
+                        <td>
+                          <div className="mod-name-cell">
+                            <span className="mod-file-icon">📄</span>
+                            <span className="mod-name-text">advapi32.dll</span>
+                          </div>
+                        </td>
+                        <td className="mod-loaded-text">sample_malware.exe</td>
+                        <td className="mod-path-text">C:\Windows\System32\advapi32.dll</td>
+                        <td className="mod-mono-cell">0x7ffb12000000</td>
+                        <td>712 KB</td>
+                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
+                        <td className="mod-mono-cell truncate-sha">d1f9c3a2e7b6...</td>
+                        <td><span className="badge-severity-low">Low</span></td>
+                      </tr>
+
+                      {/* 4 */}
+                      <tr>
+                        <td>
+                          <div className="mod-name-cell">
+                            <span className="mod-file-icon">📄</span>
+                            <span className="mod-name-text">ws2_32.dll</span>
+                          </div>
+                        </td>
+                        <td className="mod-loaded-text">sample_malware.exe</td>
+                        <td className="mod-path-text">C:\Windows\System32\ws2_32.dll</td>
+                        <td className="mod-mono-cell">0x7ffb13000000</td>
+                        <td>436 KB</td>
+                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
+                        <td className="mod-mono-cell truncate-sha">7c9e1f4d8a3b...</td>
+                        <td><span className="badge-severity-low">Low</span></td>
+                      </tr>
+
+                      {/* 5 - payload.dll (SELECTED) */}
+                      <tr className="row-selected-module">
+                        <td>
+                          <div className="mod-name-cell">
+                            <span className="mod-file-icon">📄</span>
+                            <span className="mod-name-text font-bold">payload.dll</span>
+                          </div>
+                        </td>
+                        <td className="mod-loaded-text">sample_malware.exe</td>
+                        <td className="mod-path-text">C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\payload.dll</td>
+                        <td className="mod-mono-cell">0x7ffb2a000000</td>
+                        <td>243 KB</td>
+                        <td><span className="badge-sig-unsigned">Unsigned</span></td>
+                        <td className="mod-mono-cell truncate-sha">c6b2d9f4a1e8...</td>
+                        <td><span className="badge-severity-high">High</span></td>
+                      </tr>
+
+                      {/* 6 */}
+                      <tr>
+                        <td>
+                          <div className="mod-name-cell">
+                            <span className="mod-file-icon">📄</span>
+                            <span className="mod-name-text">config.dll</span>
+                          </div>
+                        </td>
+                        <td className="mod-loaded-text">sample_malware.exe</td>
+                        <td className="mod-path-text">C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\config.dll</td>
+                        <td className="mod-mono-cell">0x7ffb2b000000</td>
+                        <td>96 KB</td>
+                        <td><span className="badge-sig-unsigned">Unsigned</span></td>
+                        <td className="mod-mono-cell truncate-sha">f52a3c9d4e7b...</td>
+                        <td><span className="badge-severity-suspicious">Suspicious</span></td>
+                      </tr>
+
+                      {/* 7 */}
+                      <tr>
+                        <td>
+                          <div className="mod-name-cell">
+                            <span className="mod-file-icon">📄</span>
+                            <span className="mod-name-text">user32.dll</span>
+                          </div>
+                        </td>
+                        <td className="mod-loaded-text">sample_malware.exe</td>
+                        <td className="mod-path-text">C:\Windows\System32\user32.dll</td>
+                        <td className="mod-mono-cell">0x7ffb15000000</td>
+                        <td>1.3 MB</td>
+                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
+                        <td className="mod-mono-cell truncate-sha">9e3d7a1b6c4f...</td>
+                        <td><span className="badge-severity-low">Low</span></td>
+                      </tr>
+
+                      {/* 8 */}
+                      <tr>
+                        <td>
+                          <div className="mod-name-cell">
+                            <span className="mod-file-icon">📄</span>
+                            <span className="mod-name-text">gdi32.dll</span>
+                          </div>
+                        </td>
+                        <td className="mod-loaded-text">sample_malware.exe</td>
+                        <td className="mod-path-text">C:\Windows\System32\gdi32.dll</td>
+                        <td className="mod-mono-cell">0x7ffb16000000</td>
+                        <td>980 KB</td>
+                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
+                        <td className="mod-mono-cell truncate-sha">a7d3e1c9b5f2...</td>
+                        <td><span className="badge-severity-low">Low</span></td>
+                      </tr>
+
+                      {/* 9 */}
+                      <tr>
+                        <td>
+                          <div className="mod-name-cell">
+                            <span className="mod-file-icon">📄</span>
+                            <span className="mod-name-text">ole32.dll</span>
+                          </div>
+                        </td>
+                        <td className="mod-loaded-text">sample_malware.exe</td>
+                        <td className="mod-path-text">C:\Windows\System32\ole32.dll</td>
+                        <td className="mod-mono-cell">0x7ffb17000000</td>
+                        <td>1.0 MB</td>
+                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
+                        <td className="mod-mono-cell truncate-sha">b4e6c5d7a8f1...</td>
+                        <td><span className="badge-severity-low">Low</span></td>
+                      </tr>
+
+                      {/* 10 */}
+                      <tr>
+                        <td>
+                          <div className="mod-name-cell">
+                            <span className="mod-file-icon">📄</span>
+                            <span className="mod-name-text">oleaut32.dll</span>
+                          </div>
+                        </td>
+                        <td className="mod-loaded-text">sample_malware.exe</td>
+                        <td className="mod-path-text">C:\Windows\System32\oleaut32.dll</td>
+                        <td className="mod-mono-cell">0x7ffb18000000</td>
+                        <td>704 KB</td>
+                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
+                        <td className="mod-mono-cell truncate-sha">c9f1e2d3a4b6...</td>
+                        <td><span className="badge-severity-low">Low</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 2. Bottom Inspection Card */}
+              <div className="dashboard-card module-detail-split-card">
+                {/* Left Detail Column */}
+                <div className="mod-detail-left">
+                  <div className="mod-detail-heading-row">
+                    <div className="mod-detail-file-icon">
+                      <svg width="22" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                        <polyline points="14 2 14 8 20 8" />
+                      </svg>
+                    </div>
+                    <span className="mod-detail-title">payload.dll</span>
+                    <span className="badge-severity-high">High Risk</span>
+                  </div>
+
+                  <div className="mod-metadata-kv-list">
+                    <div className="mod-kv-row">
+                      <span className="mod-kv-key">Full Path</span>
+                      <span className="mod-kv-val mono-path">C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\payload.dll</span>
+                    </div>
+                    <div className="mod-kv-row">
+                      <span className="mod-kv-key">Loaded By</span>
+                      <span className="mod-kv-val">sample_malware.exe (PID 4320)</span>
+                    </div>
+                    <div className="mod-kv-row">
+                      <span className="mod-kv-key">Base Address</span>
+                      <span className="mod-kv-val mono-val">0x7ffb2a000000</span>
+                    </div>
+                    <div className="mod-kv-row">
+                      <span className="mod-kv-key">Size</span>
+                      <span className="mod-kv-val">243 KB (248,832 bytes)</span>
+                    </div>
+                    <div className="mod-kv-row">
+                      <span className="mod-kv-key">Signature</span>
+                      <span className="badge-sig-unsigned">Unsigned</span>
+                    </div>
+                    <div className="mod-kv-row">
+                      <span className="mod-kv-key">SHA-256</span>
+                      <div className="mod-sha256-wrap">
+                        <span className="mod-kv-val mono-hash truncate-hash">c6b2d9f4a1e8c3d7b0f5a9e2c4d6a7f1b8e3c0d9a2f4e6b7c1d3e5f8a9b2c4d6e</span>
+                        <button type="button" className="btn-copy-hash" title="Copy SHA-256">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Details Column: Why Flagged & Additional Information */}
+                <div className="mod-detail-right">
+                  <div className="why-flagged-section">
+                    <div className="why-flagged-header">
+                      <span className="why-flagged-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                          <line x1="12" y1="9" x2="12" y2="13" />
+                          <line x1="12" y1="17" x2="12.01" y2="17" />
+                        </svg>
+                      </span>
+                      <span className="why-flagged-title">Why Flagged</span>
+                    </div>
+                    <p className="why-flagged-desc">
+                      This module is loaded from a non-standard, user-writable directory (AppData\Roaming) and is not digitally signed. Such behavior is common in malware for executing malicious code.
+                    </p>
+                  </div>
+
+                  <div className="additional-info-section">
+                    <h5 className="additional-info-title">Additional Information</h5>
+                    <div className="mod-metadata-kv-list">
+                      <div className="mod-kv-row">
+                        <span className="mod-kv-key">Compilation Timestamp</span>
+                        <span className="mod-kv-val">N/A</span>
+                      </div>
+                      <div className="mod-kv-row">
+                        <span className="mod-kv-key">Linker Version</span>
+                        <span className="mod-kv-val">N/A</span>
+                      </div>
+                      <div className="mod-kv-row">
+                        <span className="mod-kv-key">File Type</span>
+                        <span className="mod-kv-val">Dynamic Link Library (DLL)</span>
+                      </div>
+                      <div className="mod-kv-row">
+                        <span className="mod-kv-key">Entropy</span>
+                        <span className="mod-kv-val">6.8 (High)</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===================== MITRE ATT&CK TAB CONTENT ===================== */}
+          {activeTab === 'MITRE ATT&CK' && (
+            <div className="mitre-tab-layout">
+              {/* Main Card: Header, Tactic Pills, and Table */}
+              <div className="dashboard-card mitre-main-card">
+                {/* Header Controls */}
+                <div className="mitre-header-row">
+                  <div className="mitre-title-with-desc">
+                    <span className="mitre-lead-icon">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="18" cy="5" r="3" />
+                        <circle cx="6" cy="12" r="3" />
+                        <circle cx="18" cy="19" r="3" />
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                      </svg>
+                    </span>
+                    <div className="mitre-title-text-wrap">
+                      <span className="mitre-card-title">MITRE ATT&amp;CK Mapping</span>
+                      <span className="mitre-card-subtitle">Identified techniques based on observed behavior.</span>
+                    </div>
+                  </div>
+
+                  <div className="mitre-header-right-tools">
+                    <div className="mitre-search-box">
+                      <span className="mitre-search-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="11" cy="11" r="8" />
+                          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        </svg>
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Search techniques..."
+                        className="mitre-search-input"
+                      />
+                    </div>
+
+                    <div className="mitre-filter-dropdown">
+                      <span>All Tactics</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </div>
+
+                    <div className="mitre-legend-dots">
+                      <div className="mitre-legend-item">
+                        <span className="mitre-dot dot-red"></span>
+                        <span>High</span>
+                      </div>
+                      <div className="mitre-legend-item">
+                        <span className="mitre-dot dot-orange"></span>
+                        <span>Medium</span>
+                      </div>
+                      <div className="mitre-legend-item">
+                        <span className="mitre-dot dot-blue"></span>
+                        <span>Low</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Top Tactics Pills Strip (6 items) */}
+                <div className="mitre-tactics-strip">
+                  {/* 1. Initial Access */}
+                  <div className="tactic-pill-card">
+                    <div className="tactic-icon-wrap icon-red-tint">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                      </svg>
+                    </div>
+                    <div className="tactic-text-info">
+                      <span className="tactic-count">5</span>
+                      <span className="tactic-name">Initial Access</span>
+                    </div>
+                  </div>
+
+                  {/* 2. Execution */}
+                  <div className="tactic-pill-card">
+                    <div className="tactic-icon-wrap icon-orange-tint">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <ellipse cx="12" cy="5" rx="9" ry="3" />
+                        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                      </svg>
+                    </div>
+                    <div className="tactic-text-info">
+                      <span className="tactic-count">4</span>
+                      <span className="tactic-name">Execution</span>
+                    </div>
+                  </div>
+
+                  {/* 3. Persistence */}
+                  <div className="tactic-pill-card">
+                    <div className="tactic-icon-wrap icon-blue-tint">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m12 2 9 4.5V17l-9 5-9-5V6.5L12 2Z" />
+                        <polyline points="12 12 12 22" />
+                        <polyline points="12 12 21 7.5" />
+                        <polyline points="12 12 3 7.5" />
+                      </svg>
+                    </div>
+                    <div className="tactic-text-info">
+                      <span className="tactic-count">3</span>
+                      <span className="tactic-name">Persistence</span>
+                    </div>
+                  </div>
+
+                  {/* 4. Defense Evasion */}
+                  <div className="tactic-pill-card">
+                    <div className="tactic-icon-wrap icon-purple-tint">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      </svg>
+                    </div>
+                    <div className="tactic-text-info">
+                      <span className="tactic-count">4</span>
+                      <span className="tactic-name">Defense Evasion</span>
+                    </div>
+                  </div>
+
+                  {/* 5. Discovery */}
+                  <div className="tactic-pill-card">
+                    <div className="tactic-icon-wrap icon-green-tint">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="18" cy="5" r="3" />
+                        <circle cx="6" cy="12" r="3" />
+                        <circle cx="18" cy="19" r="3" />
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                      </svg>
+                    </div>
+                    <div className="tactic-text-info">
+                      <span className="tactic-count">2</span>
+                      <span className="tactic-name">Discovery</span>
+                    </div>
+                  </div>
+
+                  {/* 6. Other */}
+                  <div className="tactic-pill-card">
+                    <div className="tactic-icon-wrap icon-grey-tint">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="1" />
+                        <circle cx="19" cy="12" r="1" />
+                        <circle cx="5" cy="12" r="1" />
+                      </svg>
+                    </div>
+                    <div className="tactic-text-info">
+                      <span className="tactic-count">3</span>
+                      <span className="tactic-name">Other</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="mitre-table-wrapper">
+                  <table className="mitre-mapping-table">
+                    <thead>
+                      <tr>
+                        <th>Technique ID</th>
+                        <th>Technique Name</th>
+                        <th>Tactic</th>
+                        <th>Evidence Count</th>
+                        <th>Severity</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* 1 - Selected T1059.003 */}
+                      <tr className="row-selected-mitre">
+                        <td className="mitre-id-bold">T1059.003</td>
+                        <td className="mitre-tech-name font-medium">Command and Scripting Interpreter: Windows Command Shell</td>
+                        <td><span className="badge-tactic-execution">Execution</span></td>
+                        <td>12</td>
+                        <td><span className="badge-severity-high">High</span></td>
+                      </tr>
+
+                      {/* 2 */}
+                      <tr>
+                        <td className="mitre-id-bold">T1547.001</td>
+                        <td className="mitre-tech-name">Registry Run Keys / Startup Folder</td>
+                        <td><span className="badge-tactic-persistence">Persistence</span></td>
+                        <td>8</td>
+                        <td><span className="badge-severity-high">High</span></td>
+                      </tr>
+
+                      {/* 3 */}
+                      <tr>
+                        <td className="mitre-id-bold">T1071.001</td>
+                        <td className="mitre-tech-name">Application Layer Protocol: Web Protocols</td>
+                        <td><span className="badge-tactic-c2">Command and Control</span></td>
+                        <td>6</td>
+                        <td><span className="badge-severity-medium">Medium</span></td>
+                      </tr>
+
+                      {/* 4 */}
+                      <tr>
+                        <td className="mitre-id-bold">T1562.001</td>
+                        <td className="mitre-tech-name">Disable or Modify Tools</td>
+                        <td><span className="badge-tactic-defense">Defense Evasion</span></td>
+                        <td>5</td>
+                        <td><span className="badge-severity-medium">Medium</span></td>
+                      </tr>
+
+                      {/* 5 */}
+                      <tr>
+                        <td className="mitre-id-bold">T1047</td>
+                        <td className="mitre-tech-name">Windows Management Instrumentation</td>
+                        <td><span className="badge-tactic-execution">Execution</span></td>
+                        <td>4</td>
+                        <td><span className="badge-severity-medium">Medium</span></td>
+                      </tr>
+
+                      {/* 6 */}
+                      <tr>
+                        <td className="mitre-id-bold">T1105</td>
+                        <td className="mitre-tech-name">Ingress Tool Transfer</td>
+                        <td><span className="badge-tactic-c2">Command and Control</span></td>
+                        <td>4</td>
+                        <td><span className="badge-severity-medium">Medium</span></td>
+                      </tr>
+
+                      {/* 7 */}
+                      <tr>
+                        <td className="mitre-id-bold">T1082</td>
+                        <td className="mitre-tech-name">System Information Discovery</td>
+                        <td><span className="badge-tactic-discovery">Discovery</span></td>
+                        <td>3</td>
+                        <td><span className="badge-severity-low">Low</span></td>
+                      </tr>
+
+                      {/* 8 */}
+                      <tr>
+                        <td className="mitre-id-bold">T1027</td>
+                        <td className="mitre-tech-name">Obfuscated Files or Information</td>
+                        <td><span className="badge-tactic-defense">Defense Evasion</span></td>
+                        <td>3</td>
+                        <td><span className="badge-severity-low">Low</span></td>
+                      </tr>
+
+                      {/* 9 */}
+                      <tr>
+                        <td className="mitre-id-bold">T1112</td>
+                        <td className="mitre-tech-name">Modify Registry</td>
+                        <td><span className="badge-tactic-defense">Defense Evasion</span></td>
+                        <td>2</td>
+                        <td><span className="badge-severity-low">Low</span></td>
+                      </tr>
+
+                      {/* 10 */}
+                      <tr>
+                        <td className="mitre-id-bold">T1041</td>
+                        <td className="mitre-tech-name">Exfiltration Over C2 Channel</td>
+                        <td><span className="badge-tactic-exfil">Exfiltration</span></td>
+                        <td>2</td>
+                        <td><span className="badge-severity-low">Low</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                <div className="mitre-pagination-footer">
+                  <span className="mitre-pagination-info">Showing 1 to 10 of 21 techniques</span>
+                  <div className="mitre-pagination-controls">
+                    <button type="button" className="btn-page-arrow" disabled>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="15 18 9 12 15 6" />
+                      </svg>
+                    </button>
+                    <button type="button" className="btn-page-number active">1</button>
+                    <button type="button" className="btn-page-number">2</button>
+                    <button type="button" className="btn-page-number">3</button>
+                    <button type="button" className="btn-page-arrow">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Side: Technique Inspection Panel */}
+              <div className="dashboard-card mitre-detail-card">
+                {/* Header */}
+                <div className="mitre-detail-header-row">
+                  <div className="mitre-detail-title-group">
+                    <h3 className="mitre-detail-id">T1059.003</h3>
+                    <span className="badge-severity-high">High</span>
+                  </div>
+                  <a href="https://attack.mitre.org/techniques/T1059/003/" target="_blank" rel="noreferrer" className="mitre-link-icon" title="View on MITRE ATT&CK">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      <polyline points="15 3 21 3 21 9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
+                  </a>
+                </div>
+
+                <p className="mitre-detail-tech-name">Command and Scripting Interpreter: Windows Command Shell</p>
+
+                {/* Tactic Tag */}
+                <div className="mitre-detail-tactic-row">
+                  <span className="mitre-label-txt">Tactic</span>
+                  <span className="badge-tactic-execution">Execution</span>
+                </div>
+
+                {/* Description */}
+                <div className="mitre-detail-desc-block">
+                  <span className="mitre-label-txt">Description</span>
+                  <p className="mitre-desc-paragraph">
+                    Adversaries may abuse Windows command shell for execution of commands and scripts.
+                  </p>
+                </div>
+
+                {/* Evidences (12) */}
+                <div className="mitre-evidences-section">
+                  <div className="mitre-evidences-header">
+                    <h5 className="mitre-evidences-title">Evidences (12)</h5>
+                    <button type="button" className="btn-view-all-evidences">
+                      <span>View All</span>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                        <polyline points="12 5 19 12 12 19" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="mitre-evidence-cards-list">
+                    {/* Evidence 1 */}
+                    <div className="mitre-evidence-item">
+                      <span className="evidence-file-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                      </span>
+                      <div className="evidence-info-wrap">
+                        <span className="evidence-primary-text">Process created: cmd.exe</span>
+                        <span className="evidence-sub-text">PID: 5184 | 14:22:20</span>
+                      </div>
+                    </div>
+
+                    {/* Evidence 2 */}
+                    <div className="mitre-evidence-item">
+                      <span className="evidence-file-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                      </span>
+                      <div className="evidence-info-wrap">
+                        <span className="evidence-primary-text">Command line</span>
+                        <span className="evidence-sub-text mono-code">cmd.exe /c powershell.exe -enc ...</span>
+                      </div>
+                    </div>
+
+                    {/* Evidence 3 */}
+                    <div className="mitre-evidence-item">
+                      <span className="evidence-file-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                      </span>
+                      <div className="evidence-info-wrap">
+                        <span className="evidence-primary-text">Child process: powershell.exe</span>
+                        <span className="evidence-sub-text">PID: 7260 | 14:22:21</span>
+                      </div>
+                    </div>
+
+                    {/* Evidence 4 */}
+                    <div className="mitre-evidence-item">
+                      <span className="evidence-file-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                      </span>
+                      <div className="evidence-info-wrap">
+                        <span className="evidence-primary-text">Script executed</span>
+                        <span className="evidence-sub-text mono-code">C:\Users\... \temp\script.ps1</span>
+                      </div>
+                    </div>
+
+                    {/* Evidence 5 */}
+                    <div className="mitre-evidence-item">
+                      <span className="evidence-file-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                      </span>
+                      <div className="evidence-info-wrap">
+                        <span className="evidence-primary-text">Suspicious command</span>
+                        <span className="evidence-sub-text mono-code">... -EncodedCommand ...</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===================== IOCs TAB CONTENT ===================== */}
+          {activeTab === 'IOCs' && (
+            <div className="iocs-tab-layout">
+              {/* Left Column: Indicators of Compromise Card */}
+              <div className="dashboard-card iocs-main-card">
+                <div className="iocs-header-row">
+                  <div className="iocs-title-with-desc">
+                    <span className="iocs-lead-icon">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 2a10 10 0 0 0-1.5 19.88V19.4a8 8 0 1 1 3-15.4" />
+                        <path d="M12 6a6 6 0 0 0-1.2 11.88V15.4A4 4 0 1 1 14 8" />
+                        <circle cx="12" cy="12" r="1.5" />
+                        <path d="M8.5 19.5a10 10 0 0 0 7 0" />
+                      </svg>
+                    </span>
+                    <div className="iocs-title-text-wrap">
+                      <span className="iocs-card-title">Indicators of Compromise (IOCs)</span>
+                      <span className="iocs-card-subtitle">All extracted indicators from the analysis.</span>
+                    </div>
+                  </div>
+
+                  <div className="iocs-header-right-tools">
+                    <div className="iocs-search-box">
+                      <span className="iocs-search-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="11" cy="11" r="8" />
+                          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        </svg>
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Search IOCs..."
+                        className="iocs-search-input"
+                      />
+                    </div>
+
+                    <div className="iocs-filter-dropdown">
+                      <span>All Types</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                {/* IOC Table */}
+                <div className="iocs-table-wrapper">
+                  <table className="iocs-data-table">
+                    <thead>
+                      <tr>
+                        <th>Type</th>
+                        <th>Value</th>
+                        <th>Confidence</th>
+                        <th>Reputation</th>
+                        <th>First Seen</th>
+                        <th>Last Seen</th>
+                        <th style={{ width: '30px' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* 1 - IP Address 185.199.110.43 (SELECTED) */}
+                      <tr className="row-selected-ioc">
+                        <td>
+                          <div className="ioc-type-cell">
+                            <span className="ioc-type-icon text-red">⚠️</span>
+                            <span>IP Address</span>
+                          </div>
+                        </td>
+                        <td className="ioc-val-text font-bold">185.199.110.43</td>
+                        <td><span className="badge-confidence-high">High</span></td>
+                        <td><span className="badge-rep-malicious">Malicious</span></td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td className="ioc-arrow-cell">›</td>
+                      </tr>
+
+                      {/* 2 - Domain api.example.com */}
+                      <tr>
+                        <td>
+                          <div className="ioc-type-cell">
+                            <span className="ioc-type-icon">🌐</span>
+                            <span>Domain</span>
+                          </div>
+                        </td>
+                        <td className="ioc-val-text">api.example.com</td>
+                        <td><span className="badge-confidence-high">High</span></td>
+                        <td><span className="badge-rep-malicious">Malicious</span></td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td className="ioc-arrow-cell">›</td>
+                      </tr>
+
+                      {/* 3 - Domain cdn.example.net */}
+                      <tr>
+                        <td>
+                          <div className="ioc-type-cell">
+                            <span className="ioc-type-icon">🌐</span>
+                            <span>Domain</span>
+                          </div>
+                        </td>
+                        <td className="ioc-val-text">cdn.example.net</td>
+                        <td><span className="badge-confidence-medium">Medium</span></td>
+                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td>Oct 11, 2026, 14:23</td>
+                        <td className="ioc-arrow-cell">›</td>
+                      </tr>
+
+                      {/* 4 - IP Address 91.213.21.34 */}
+                      <tr>
+                        <td>
+                          <div className="ioc-type-cell">
+                            <span className="ioc-type-icon text-red">⚠️</span>
+                            <span>IP Address</span>
+                          </div>
+                        </td>
+                        <td className="ioc-val-text font-mono">91.213.21.34</td>
+                        <td><span className="badge-confidence-medium">Medium</span></td>
+                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td>Oct 11, 2026, 14:23</td>
+                        <td className="ioc-arrow-cell">›</td>
+                      </tr>
+
+                      {/* 5 - URL http://update-microsoft.com/check */}
+                      <tr>
+                        <td>
+                          <div className="ioc-type-cell">
+                            <span className="ioc-type-icon text-red">🔗</span>
+                            <span>URL</span>
+                          </div>
+                        </td>
+                        <td className="ioc-val-text">http://update-microsoft.com/check</td>
+                        <td><span className="badge-confidence-medium">Medium</span></td>
+                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td className="ioc-arrow-cell">›</td>
+                      </tr>
+
+                      {/* 6 - URL hxxp://185.220.101.12/payload */}
+                      <tr>
+                        <td>
+                          <div className="ioc-type-cell">
+                            <span className="ioc-type-icon text-red">🔗</span>
+                            <span>URL</span>
+                          </div>
+                        </td>
+                        <td className="ioc-val-text">hxxp://185.220.101.12/payload</td>
+                        <td><span className="badge-confidence-high">High</span></td>
+                        <td><span className="badge-rep-malicious">Malicious</span></td>
+                        <td>Oct 11, 2026, 14:23</td>
+                        <td>Oct 11, 2026, 14:23</td>
+                        <td className="ioc-arrow-cell">›</td>
+                      </tr>
+
+                      {/* 7 - File Hash (SHA256) */}
+                      <tr>
+                        <td>
+                          <div className="ioc-type-cell">
+                            <span className="ioc-type-icon text-red">📄</span>
+                            <span>File Hash (SHA256)</span>
+                          </div>
+                        </td>
+                        <td className="ioc-val-text font-mono truncate-ioc-hash">c6b2d9f4a1e8c3d7b0f5a9e2c4d6a7f...</td>
+                        <td><span className="badge-confidence-high">High</span></td>
+                        <td><span className="badge-rep-malicious">Malicious</span></td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td className="ioc-arrow-cell">›</td>
+                      </tr>
+
+                      {/* 8 - File Hash (MD5) */}
+                      <tr>
+                        <td>
+                          <div className="ioc-type-cell">
+                            <span className="ioc-type-icon text-red">📄</span>
+                            <span>File Hash (MD5)</span>
+                          </div>
+                        </td>
+                        <td className="ioc-val-text font-mono">5f2a3c9d4e7b1a8c6d0e2f1a3b4c5d6e</td>
+                        <td><span className="badge-confidence-medium">Medium</span></td>
+                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td className="ioc-arrow-cell">›</td>
+                      </tr>
+
+                      {/* 9 - Mutex */}
+                      <tr>
+                        <td>
+                          <div className="ioc-type-cell">
+                            <span className="ioc-type-icon text-red">🔄</span>
+                            <span>Mutex</span>
+                          </div>
+                        </td>
+                        <td className="ioc-val-text font-mono">Global\{'{'}F3A7B1C2-9D44{'}'}</td>
+                        <td><span className="badge-confidence-medium">Medium</span></td>
+                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td className="ioc-arrow-cell">›</td>
+                      </tr>
+
+                      {/* 10 - Registry Key */}
+                      <tr>
+                        <td>
+                          <div className="ioc-type-cell">
+                            <span className="ioc-type-icon text-red">🔀</span>
+                            <span>Registry Key</span>
+                          </div>
+                        </td>
+                        <td className="ioc-val-text font-mono truncate-ioc-hash">HKCU\Software\Microsoft\Windows\...</td>
+                        <td><span className="badge-confidence-medium">Medium</span></td>
+                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td className="ioc-arrow-cell">›</td>
+                      </tr>
+
+                      {/* 11 - Domain track.example.org */}
+                      <tr>
+                        <td>
+                          <div className="ioc-type-cell">
+                            <span className="ioc-type-icon">🌐</span>
+                            <span>Domain</span>
+                          </div>
+                        </td>
+                        <td className="ioc-val-text">track.example.org</td>
+                        <td><span className="badge-confidence-low">Low</span></td>
+                        <td><span className="badge-rep-unknown">Unknown</span></td>
+                        <td>Oct 11, 2026, 14:23</td>
+                        <td>Oct 11, 2026, 14:23</td>
+                        <td className="ioc-arrow-cell">›</td>
+                      </tr>
+
+                      {/* 12 - IP Address 8.8.8.8 */}
+                      <tr>
+                        <td>
+                          <div className="ioc-type-cell">
+                            <span className="ioc-type-icon text-red">⚠️</span>
+                            <span>IP Address</span>
+                          </div>
+                        </td>
+                        <td className="ioc-val-text font-mono">8.8.8.8</td>
+                        <td><span className="badge-confidence-low">Low</span></td>
+                        <td><span className="badge-rep-benign">Benign</span></td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td>Oct 11, 2026, 14:22</td>
+                        <td className="ioc-arrow-cell">›</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="iocs-table-footer">
+                  <span className="iocs-pagination-info">Showing 1 to 12 of 12 IOCs</span>
+                </div>
+              </div>
+
+              {/* Right Column: IOC Details Inspection Panel */}
+              <div className="dashboard-card iocs-detail-card">
+                {/* Header */}
+                <div className="ioc-detail-header-row">
+                  <div className="ioc-detail-title-group">
+                    <span className="ioc-lead-red-icon">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="18" cy="5" r="3" />
+                        <circle cx="6" cy="12" r="3" />
+                        <circle cx="18" cy="19" r="3" />
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                      </svg>
+                    </span>
+                    <div>
+                      <div className="ioc-header-ip-badge-wrap">
+                        <h4 className="ioc-detail-ip">185.199.110.43</h4>
+                        <span className="badge-rep-malicious">Malicious</span>
+                      </div>
+                      <span className="ioc-detail-subtitle">Type: IP Address</span>
+                    </div>
+                  </div>
+                  <button type="button" className="btn-close-ioc-detail" title="Close">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* Reputation specs */}
+                <div className="ioc-detail-section">
+                  <h5 className="ioc-section-title">Reputation</h5>
+                  <div className="ioc-kv-list">
+                    <div className="ioc-kv-row">
+                      <span className="ioc-kv-key">Threat Intelligence</span>
+                      <span className="badge-rep-malicious">Malicious</span>
+                    </div>
+                    <div className="ioc-kv-row">
+                      <span className="ioc-kv-key">Confidence</span>
+                      <span className="badge-confidence-high">High</span>
+                    </div>
+                    <div className="ioc-kv-row">
+                      <span className="ioc-kv-key">First Seen</span>
+                      <span className="ioc-kv-val">Oct 11, 2026, 14:22:10</span>
+                    </div>
+                    <div className="ioc-kv-row">
+                      <span className="ioc-kv-key">Last Seen</span>
+                      <span className="ioc-kv-val">Oct 11, 2026, 14:22:45</span>
+                    </div>
+                    <div className="ioc-kv-row">
+                      <span className="ioc-kv-key">Observation Count</span>
+                      <span className="ioc-kv-val font-semibold">7</span>
+                    </div>
+                    <div className="ioc-kv-row">
+                      <span className="ioc-kv-key">ASN</span>
+                      <span className="ioc-kv-val">AS16276 (OVH SAS)</span>
+                    </div>
+                    <div className="ioc-kv-row">
+                      <span className="ioc-kv-key">Country</span>
+                      <span className="ioc-kv-val country-val">
+                        <span className="flag-fr">🇫🇷</span> France
+                      </span>
+                    </div>
+                    <div className="ioc-kv-row">
+                      <span className="ioc-kv-key">Organization</span>
+                      <span className="ioc-kv-val">OVH SAS</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Associated Artifacts */}
+                <div className="ioc-detail-section">
+                  <h5 className="ioc-section-title">Associated Artifacts</h5>
+                  <div className="ioc-artifacts-list">
+                    <div className="ioc-artifact-row">
+                      <div className="ioc-art-left">
+                        <span className="ioc-art-icon">🌐</span>
+                        <span className="ioc-art-name">Domains</span>
+                      </div>
+                      <div className="ioc-art-right">
+                        <span className="ioc-art-count">2</span>
+                        <span className="ioc-art-arrow">›</span>
+                      </div>
+                    </div>
+
+                    <div className="ioc-artifact-row">
+                      <div className="ioc-art-left">
+                        <span className="ioc-art-icon">🔗</span>
+                        <span className="ioc-art-name">URLs</span>
+                      </div>
+                      <div className="ioc-art-right">
+                        <span className="ioc-art-count">1</span>
+                        <span className="ioc-art-arrow">›</span>
+                      </div>
+                    </div>
+
+                    <div className="ioc-artifact-row">
+                      <div className="ioc-art-left">
+                        <span className="ioc-art-icon">📄</span>
+                        <span className="ioc-art-name">Files</span>
+                      </div>
+                      <div className="ioc-art-right">
+                        <span className="ioc-art-count">1</span>
+                        <span className="ioc-art-arrow">›</span>
+                      </div>
+                    </div>
+
+                    <div className="ioc-artifact-row">
+                      <div className="ioc-art-left">
+                        <span className="ioc-art-icon">⚙️</span>
+                        <span className="ioc-art-name">Processes</span>
+                      </div>
+                      <div className="ioc-art-right">
+                        <span className="ioc-art-count">3</span>
+                        <span className="ioc-art-arrow">›</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Threat Intelligence Sources */}
+                <div className="ioc-detail-section">
+                  <h5 className="ioc-section-title">Threat Intelligence Sources</h5>
+                  <div className="ioc-ti-sources-list">
+                    <div className="ioc-ti-source-row">
+                      <div className="ti-source-left">
+                        <span className="ti-source-icon text-blue">🛡️</span>
+                        <span className="ti-source-name">AlienVault OTX</span>
+                      </div>
+                      <span className="badge-rep-malicious">Malicious</span>
+                    </div>
+
+                    <div className="ioc-ti-source-row">
+                      <div className="ti-source-left">
+                        <span className="ti-source-icon text-green">🔍</span>
+                        <span className="ti-source-name">VirusTotal</span>
+                      </div>
+                      <span className="badge-vt-score">2 / 89</span>
+                    </div>
+
+                    <div className="ioc-ti-source-row">
+                      <div className="ti-source-left">
+                        <span className="ti-source-icon text-purple">🟣</span>
+                        <span className="ti-source-name">AbuseIPDB</span>
+                      </div>
+                      <span className="badge-rep-malicious">Malicious</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===================== RAW EVENTS TAB CONTENT ===================== */}
+          {activeTab === 'Raw Events' && (
+            <div className="raw-events-tab-layout">
+              {/* Left Column: Raw Events Table Card */}
+              <div className="dashboard-card raw-events-main-card">
+                <div className="raw-header-row">
+                  <div className="raw-title-with-desc">
+                    <span className="raw-lead-icon">
+                      <svg width="22" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="16" y1="13" x2="8" y2="13" />
+                        <line x1="16" y1="17" x2="8" y2="17" />
+                        <line x1="10" y1="9" x2="8" y2="9" />
+                      </svg>
+                    </span>
+                    <div className="raw-title-text-wrap">
+                      <span className="raw-card-title">Raw Events</span>
+                      <span className="raw-card-subtitle">All captured system events during analysis (chronological order).</span>
+                    </div>
+                  </div>
+
+                  <div className="raw-header-right-tools">
+                    <div className="raw-search-box">
+                      <span className="raw-search-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="11" cy="11" r="8" />
+                          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        </svg>
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Search events..."
+                        className="raw-search-input"
+                      />
+                    </div>
+
+                    <div className="raw-filter-dropdown">
+                      <span>All Event Types</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="raw-table-wrapper">
+                  <table className="raw-events-data-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: '40px' }}>#</th>
+                        <th>Timestamp</th>
+                        <th>Event Type</th>
+                        <th>Source</th>
+                        <th>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* 1 - SELECTED */}
+                      <tr className="row-selected-raw">
+                        <td className="raw-num-col">1</td>
+                        <td className="raw-time-col">14:22:10.123</td>
+                        <td className="raw-type-col">process_create</td>
+                        <td className="raw-source-col">sysmon</td>
+                        <td className="raw-details-col font-medium">sample_malware.exe (PID 4320)</td>
+                      </tr>
+
+                      {/* 2 */}
+                      <tr>
+                        <td className="raw-num-col">2</td>
+                        <td className="raw-time-col">14:22:10.245</td>
+                        <td className="raw-type-col">file_create</td>
+                        <td className="raw-source-col">procmon</td>
+                        <td className="raw-details-col font-mono">C:\Users\WDAGUtilityAccount\AppData\Ro...</td>
+                      </tr>
+
+                      {/* 3 */}
+                      <tr>
+                        <td className="raw-num-col">3</td>
+                        <td className="raw-time-col">14:22:11.011</td>
+                        <td className="raw-type-col">registry_set</td>
+                        <td className="raw-source-col">procmon</td>
+                        <td className="raw-details-col font-mono">HKCU\Software\Microsoft\Windows\Curr...</td>
+                      </tr>
+
+                      {/* 4 */}
+                      <tr>
+                        <td className="raw-num-col">4</td>
+                        <td className="raw-time-col">14:22:11.436</td>
+                        <td className="raw-type-col">network_connect</td>
+                        <td className="raw-source-col">netmon</td>
+                        <td className="raw-details-col font-mono">185.199.110.43:443 (HTTPS)</td>
+                      </tr>
+
+                      {/* 5 */}
+                      <tr>
+                        <td className="raw-num-col">5</td>
+                        <td className="raw-time-col">14:22:12.089</td>
+                        <td className="raw-type-col">dns_query</td>
+                        <td className="raw-source-col">dnscap</td>
+                        <td className="raw-details-col">api.example.com (A)</td>
+                      </tr>
+
+                      {/* 6 */}
+                      <tr>
+                        <td className="raw-num-col">6</td>
+                        <td className="raw-time-col">14:22:12.412</td>
+                        <td className="raw-type-col">file_write</td>
+                        <td className="raw-source-col">procmon</td>
+                        <td className="raw-details-col font-mono">C:\Windows\Temp\payload.dll</td>
+                      </tr>
+
+                      {/* 7 */}
+                      <tr>
+                        <td className="raw-num-col">7</td>
+                        <td className="raw-time-col">14:22:13.005</td>
+                        <td className="raw-type-col">module_load</td>
+                        <td className="raw-source-col">sysmon</td>
+                        <td className="raw-details-col font-mono">payload.dll (0x7ffb2a000000)</td>
+                      </tr>
+
+                      {/* 8 */}
+                      <tr>
+                        <td className="raw-num-col">8</td>
+                        <td className="raw-time-col">14:22:13.521</td>
+                        <td className="raw-type-col">process_create</td>
+                        <td className="raw-source-col">sysmon</td>
+                        <td className="raw-details-col">powershell.exe (PID 7260)</td>
+                      </tr>
+
+                      {/* 9 */}
+                      <tr>
+                        <td className="raw-num-col">9</td>
+                        <td className="raw-time-col">14:22:13.998</td>
+                        <td className="raw-type-col">file_create</td>
+                        <td className="raw-source-col">procmon</td>
+                        <td className="raw-details-col font-mono">C:\Users\WDAGUtilityAccount\AppData\Lo...</td>
+                      </tr>
+
+                      {/* 10 */}
+                      <tr>
+                        <td className="raw-num-col">10</td>
+                        <td className="raw-time-col">14:22:14.662</td>
+                        <td className="raw-type-col">network_connect</td>
+                        <td className="raw-source-col">netmon</td>
+                        <td className="raw-details-col font-mono">91.213.21.34:53 (DNS)</td>
+                      </tr>
+
+                      {/* 11 */}
+                      <tr>
+                        <td className="raw-num-col">11</td>
+                        <td className="raw-time-col">14:22:15.210</td>
+                        <td className="raw-type-col">registry_set</td>
+                        <td className="raw-source-col">procmon</td>
+                        <td className="raw-details-col font-mono">HKCU\Software\Microsoft\Windows\Curr...</td>
+                      </tr>
+
+                      {/* 12 */}
+                      <tr>
+                        <td className="raw-num-col">12</td>
+                        <td className="raw-time-col">14:22:16.334</td>
+                        <td className="raw-type-col">process_terminate</td>
+                        <td className="raw-source-col">sysmon</td>
+                        <td className="raw-details-col font-medium">sample_malware.exe (PID 4320)</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                <div className="raw-pagination-footer">
+                  <span className="raw-pagination-info">Showing 1 to 12 of 342 events</span>
+                  <div className="raw-pagination-controls">
+                    <button type="button" className="btn-page-arrow" disabled>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="15 18 9 12 15 6" />
+                      </svg>
+                    </button>
+                    <button type="button" className="btn-page-number active">1</button>
+                    <button type="button" className="btn-page-number">2</button>
+                    <button type="button" className="btn-page-number">3</button>
+                    <button type="button" className="btn-page-number">4</button>
+                    <button type="button" className="btn-page-number">5</button>
+                    <span className="page-ellipsis">...</span>
+                    <button type="button" className="btn-page-number">29</button>
+                    <button type="button" className="btn-page-arrow">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Event Details & JSON Card */}
+              <div className="raw-right-widgets-col">
+                {/* 1. Event Details Card */}
+                <div className="dashboard-card raw-detail-card">
+                  <div className="raw-detail-header">
+                    <div className="raw-detail-title-group">
+                      <span className="raw-header-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                          <line x1="8" y1="21" x2="16" y2="21" />
+                          <line x1="12" y1="17" x2="12" y2="21" />
+                        </svg>
+                      </span>
+                      <h4 className="raw-detail-title">Event Details</h4>
+                    </div>
+                    <button type="button" className="btn-close-raw-detail" title="Close">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="raw-kv-list">
+                    <div className="raw-kv-row">
+                      <span className="raw-kv-key">Event Type</span>
+                      <span className="badge-event-type">process_create</span>
+                    </div>
+                    <div className="raw-kv-row">
+                      <span className="raw-kv-key">Timestamp</span>
+                      <span className="raw-kv-val">Oct 11, 2026, 14:22:10.123</span>
+                    </div>
+                    <div className="raw-kv-row">
+                      <span className="raw-kv-key">Source</span>
+                      <span className="raw-kv-val">sysmon</span>
+                    </div>
+                    <div className="raw-kv-row">
+                      <span className="raw-kv-key">Event ID</span>
+                      <span className="raw-kv-val">1</span>
+                    </div>
+                    <div className="raw-kv-row">
+                      <span className="raw-kv-key">Process</span>
+                      <span className="raw-kv-val">sample_malware.exe (PID 4320)</span>
+                    </div>
+                    <div className="raw-kv-row">
+                      <span className="raw-kv-key">User</span>
+                      <span className="raw-kv-val">WDAGUtilityAccount</span>
+                    </div>
+                    <div className="raw-kv-row align-start">
+                      <span className="raw-kv-key">Command Line</span>
+                      <div className="raw-cmd-box">
+                        <span>"C:\Users\WDAGUtilityAccount\Desktop\sample_malware.exe"</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Raw Event Data (JSON) Card */}
+                <div className="dashboard-card raw-json-card">
+                  <div className="raw-json-header">
+                    <div className="raw-detail-title-group">
+                      <span className="raw-header-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                      </span>
+                      <h4 className="raw-detail-title">Raw Event Data (JSON)</h4>
+                    </div>
+                    <button type="button" className="btn-copy-raw-json" title="Copy JSON">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* JSON Code Viewer with Syntax Coloring */}
+                  <div className="raw-json-viewer-container">
+                    <pre className="raw-json-pre">
+                      <code>
+{`{
+  `}<span className="json-key">"event_id"</span>{`: `}<span className="json-number">1</span>{`,
+  `}<span className="json-key">"timestamp"</span>{`: `}<span className="json-string">"2026-10-11T14:22:10.123Z"</span>{`,
+  `}<span className="json-key">"event_type"</span>{`: `}<span className="json-string">"process_create"</span>{`,
+  `}<span className="json-key">"source"</span>{`: `}<span className="json-string">"sysmon"</span>{`,
+  `}<span className="json-key">"process"</span>{`: {
+    `}<span className="json-key">"pid"</span>{`: `}<span className="json-number">4320</span>{`,
+    `}<span className="json-key">"name"</span>{`: `}<span className="json-string">"sample_malware.exe"</span>{`,
+    `}<span className="json-key">"path"</span>{`: `}<span className="json-string">"C:\\\\Users\\\\WDAGUtilityAccount\\\\Desktop\\\\sample_malware.exe"</span>{`,
+    `}<span className="json-key">"command_line"</span>{`: `}<span className="json-string">"C:\\\\Users\\\\WDAGUtilityAccount\\\\Desktop\\\\sample_malware.exe"</span>{`,
+    `}<span className="json-key">"parent_pid"</span>{`: `}<span className="json-number">3216</span>{`,
+    `}<span className="json-key">"parent_name"</span>{`: `}<span className="json-string">"explorer.exe"</span>{`,
+    `}<span className="json-key">"user"</span>{`: `}<span className="json-string">"WDAGUtilityAccount"</span>{`
+  },
+  `}<span className="json-key">"hashes"</span>{`: {
+    `}<span className="json-key">"sha256"</span>{`: `}<span className="json-string">"37a8e5c6b0d3e9f72ca9d6e1f78b3c4d56e7f906a1b2c3d4e5f6a7b8c9d0e1f2"</span>{`
+  }
+}`}
+                      </code>
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Placeholder for other tabs (e.g. Registry) */}
+          {activeTab !== 'Overview' && activeTab !== 'Behavior' && activeTab !== 'Processes' && activeTab !== 'File System' && activeTab !== 'Network' && activeTab !== 'DNS' && activeTab !== 'Modules' && activeTab !== 'MITRE ATT&CK' && activeTab !== 'IOCs' && activeTab !== 'Raw Events' && (
             <div className="dashboard-card" style={{ padding: '3.5rem', textAlign: 'center' }}>
               <h3 style={{ fontSize: '1.2rem', color: '#111418', marginBottom: '0.5rem' }}>{activeTab} Telemetry</h3>
               <p style={{ color: '#727a85', fontSize: '0.9rem' }}>Detailed inspection logs for {activeTab} will appear here.</p>
