@@ -1,13 +1,38 @@
-.hero {
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+.home-container {
   position: relative;
   width: 100%;
   min-height: 100vh;
+  background-color: #EDEDED;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow-x: hidden;
+}
+
+/* ---------------- Hero Section ---------------- */
+.hero {
+  position: relative;
+  width: 100%;
+  /* 
+    On 1440x900 or larger screens, 100vh fits comfortably.
+    On shorter viewports (laptops like 1366x768), enforcing a min-height ensures 
+    the hero container maintains enough vertical room for the content and image
+    without squeezing the 3D cube into the text.
+  */
+  min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  padding-top: 140px;
   overflow: hidden;
 }
 
+/* 
+  Background Image scaling & placement:
+  By default (1440x900+), object-fit: cover with center bottom aligns perfectly.
+  top / left / width / height anchor it behind all hero content.
+*/
 .hero-bg-img {
   position: absolute;
   top: 0;
@@ -15,14 +40,1020 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center bottom;
   opacity: 1;
   z-index: 1;
   pointer-events: none;
 }
 
+/* ---------------- Center Hero Content ---------------- */
 .hero-content {
   position: relative;
-  z-index: 2;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
-  padding: 2rem;
+  max-width: 860px;
+  padding: 0 1.5rem;
+  margin-top: 10px;
 }
+
+/* Eyebrow: ANALYZE · UNDERSTAND · STAY AHEAD */
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.9rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  color: #68707aba;
+  margin-bottom: 2.1rem;
+  text-transform: uppercase;
+}
+
+.hero-eyebrow .dot {
+  color: #9aa1ab;
+  font-size: 0.85rem;
+}
+
+/* Title: Unpack malware. See the bigger picture. */
+.hero-title {
+  font-size: clamp(3rem, 5.8vw, 4.65rem);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+  color: #111317;
+  margin-bottom: 1.6rem;
+}
+
+.hero-title .title-muted {
+  color: #676e78;
+  font-weight: 400;
+}
+
+/* Subtitle description */
+.hero-description {
+  font-size: 1.05rem;
+  line-height: 1.62;
+  color: #484f59;
+  max-width: 630px;
+  font-weight: 400;
+  margin-bottom: 2.3rem;
+}
+
+/* CTA Buttons */
+.hero-cta-group {
+  display: flex;
+  align-items: center;
+  gap: 1.8rem;
+}
+
+.hero-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  background-color: #121316;
+  color: #ffffff;
+  padding: 0.75rem 1.65rem;
+  border-radius: 9999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border: none;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.16);
+}
+
+.hero-btn-primary:hover {
+  background-color: #000000;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+.hero-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #121316;
+  font-size: 0.92rem;
+  font-weight: 500;
+  text-decoration: none;
+  padding: 0.5rem 0.2rem;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.hero-btn-secondary:hover {
+  opacity: 0.7;
+  transform: translateY(-1px);
+}
+
+/* ---------------- Tactical Perimeter Annotations ---------------- */
+
+/* Marker Base */
+.tactical-marker {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  color: #68707a9b;
+  pointer-events: none;
+  user-select: none;
+}
+
+.tactical-marker .marker-label {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+/* Top Left: ISOLATED EXECUTION */
+.marker-isolated {
+  top: 260px;
+  left: 5.5%;
+  align-items: flex-start;
+  gap: 0.9rem;
+}
+
+.marker-pip {
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid #68707a9b;
+  border-radius: 50%;
+  margin-top: 2px;
+}
+
+/* Top Right: BEHAVIORAL INSIGHTS */
+.marker-behavioral {
+  top: 350px;
+  right: 5.5%;
+  align-items: center;
+  gap: 1rem;
+  text-align: right;
+}
+
+.marker-line {
+  width: 42px;
+  height: 1px;
+  background-color: #68707a9b;
+}
+
+/* Mid Right: MITRE ATT&CK MAPPING */
+.marker-mitre {
+  top: 575px;
+  right: 5.5%;
+  align-items: flex-start;
+  gap: 0.85rem;
+  text-align: right;
+}
+
+.marker-line-corner {
+  width: 1px;
+  height: 44px;
+  background-color: #68707a9b;
+  margin-top: 4px;
+}
+
+/* Lower Left: Tactical Pipeline Specs */
+.tactical-pipeline-specs {
+  position: absolute;
+  bottom: 25%;
+  left: 12%;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.18em;
+  color: #68707a9b;
+  font-weight: 500;
+  pointer-events: none;
+  user-select: none;
+}
+
+.tactical-pipeline-specs .dash {
+  color: #9fa7b4;
+  margin-right: 0.4rem;
+}
+
+/* ---------------- Responsive Styles ---------------- */
+@media (max-width: 1200px) {
+  .tactical-pipeline-specs {
+    left: 8%;
+  }
+}
+
+@media (max-width: 1024px) {
+  .hero {
+    padding-top: 120px;
+  }
+
+  .tactical-marker,
+  .tactical-pipeline-specs {
+    display: none;
+  }
+}
+
+/* 
+  Laptop Screen Calibration (e.g., 1366×768, 1280×800, 1440×900 aspect ratio scaling)
+  Only engages when viewport aspect ratio is wider than the natural 16:9 or when vertical
+  height is <= 850px, ensuring 1440×900 retains its exact composition without distortion.
+*/
+@media (max-height: 850px) {
+  .hero {
+    /* 
+      Provide adequate vertical headroom so the bottom glass cube doesn't 
+      overlap the buttons/text, while keeping smooth scrollability
+    */
+    min-height: 860px;
+    padding-top: 120px;
+  }
+
+  .hero-bg-img {
+    height: 100%;
+    object-fit: cover;
+    /* Anchor to bottom and translate downwards slightly to keep cube below CTA */
+    object-position: center bottom;
+    transform: translateY(4%);
+  }
+
+  .marker-mitre {
+    top: auto;
+    bottom: 24%;
+  }
+
+  .marker-behavioral {
+    top: 290px;
+  }
+
+  .marker-isolated {
+    top: 210px;
+  }
+
+  .tactical-pipeline-specs {
+    bottom: 15%;
+    left: 10%;
+  }
+}
+
+/* Shorter laptop screens (e.g., 1366×768 with browser toolbars ~650-720px available height) */
+@media (max-height: 750px) {
+  .hero {
+    min-height: 840px;
+    padding-top: 100px;
+  }
+
+  .hero-bg-img {
+    transform: translateY(6%);
+  }
+
+  .marker-mitre {
+    display: none;
+  }
+}
+
+/* ---------------- 2. Feature Highlights Ribbon Section ---------------- */
+.features-ribbon-section {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  background-color: #e0e0e0;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 3rem 4rem;
+}
+
+.features-ribbon-container {
+  max-width: 1360px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2.5rem;
+}
+
+.ribbon-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.15rem;
+}
+
+.ribbon-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #121417;
+  margin-top: 2px;
+}
+
+.ribbon-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ribbon-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #111418;
+  letter-spacing: -0.01em;
+  margin: 0;
+  line-height: 1.25;
+}
+
+.ribbon-subtitle {
+  font-size: 0.82rem;
+  color: #68707a;
+  margin: 0;
+  line-height: 1.4;
+  font-weight: 400;
+}
+
+/* ---------------- 3. How It Works Section ---------------- */
+.how-it-works-section {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  background-color: #EDEDED;
+  padding: 6.5rem 4rem 7.5rem 4rem;
+}
+
+.how-it-works-container {
+  max-width: 1360px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5.5rem;
+}
+
+/* Header Row: Split Layout */
+.how-header-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4rem;
+}
+
+.how-title-col {
+  flex: 1;
+  max-width: 580px;
+}
+
+.how-eyebrow {
+  display: inline-block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.26em;
+  color: #68707aba;
+  text-transform: uppercase;
+  margin-bottom: 1.4rem;
+}
+
+.how-heading {
+  font-size: clamp(2.6rem, 4.4vw, 3.8rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: #111418;
+  margin: 0;
+}
+
+.how-desc-col {
+  flex: 1;
+  max-width: 520px;
+  padding-bottom: 0.5rem;
+}
+
+.how-description {
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: #555d68;
+  font-weight: 400;
+  margin: 0;
+}
+
+/* 4 Steps Grid */
+.how-steps-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3.5rem;
+}
+
+.how-step-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.step-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 1.6rem;
+  margin-bottom: 1.6rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.step-num {
+  font-size: 1.85rem;
+  font-weight: 400;
+  color: #111418;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.step-icon {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #111418;
+}
+
+.step-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #111418;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.85rem 0;
+  line-height: 1.3;
+}
+
+.step-desc {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: #636b77;
+  font-weight: 400;
+  margin: 0;
+}
+
+/* ---------------- Responsive Tweaks for Sections ---------------- */
+@media (max-width: 1200px) {
+  .features-ribbon-section,
+  .how-it-works-section {
+    padding-left: 2.5rem;
+    padding-right: 2.5rem;
+  }
+
+  .features-ribbon-container {
+    gap: 1.75rem;
+  }
+
+  .how-steps-grid {
+    gap: 2rem;
+  }
+}
+
+@media (max-width: 992px) {
+  .features-ribbon-container {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2.5rem;
+  }
+
+  .how-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.75rem;
+  }
+
+  .how-steps-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 3rem 2.5rem;
+  }
+
+  .how-it-works-container {
+    gap: 3.5rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .features-ribbon-section,
+  .how-it-works-section {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+
+  .features-ribbon-container {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+
+  .how-steps-grid {
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+  }
+
+  .how-it-works-section {
+    padding-top: 4.5rem;
+    padding-bottom: 5.5rem;
+  }
+}
+
+/* ---------------- 4. Product Preview Section ---------------- */
+.product-preview-section {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  background-color: #EDEDED;
+  padding: 4rem 4rem 8rem 4rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.product-preview-container {
+  max-width: 1360px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  align-items: center;
+  gap: 4.5rem;
+}
+
+/* Left Column */
+.preview-text-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-eyebrow {
+  display: inline-block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: #68707aba;
+  text-transform: uppercase;
+  margin-bottom: 1.4rem;
+}
+
+.preview-heading {
+  font-size: clamp(2.4rem, 4.2vw, 3.8rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: #111418;
+  margin: 0 0 1.6rem 0;
+}
+
+.preview-description {
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: #555d68;
+  max-width: 440px;
+  margin: 0 0 2.2rem 0;
+}
+
+.preview-btn-wrap {
+  display: flex;
+}
+
+.preview-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  background-color: #121316;
+  color: #ffffff;
+  padding: 0.8rem 1.65rem;
+  border-radius: 9999px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.16);
+}
+
+.preview-cta-btn:hover {
+  background-color: #000000;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+/* Right Column: Dark Window Screen Frame */
+.preview-screen-col {
+  display: flex;
+  justify-content: center;
+}
+
+.preview-window-frame {
+  width: 100%;
+  background-color: #1A1D20;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.28), 0 12px 30px -8px rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.preview-window-frame:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 32px 75px -12px rgba(0, 0, 0, 0.35);
+}
+
+/* Window Titlebar with macOS Dots */
+.window-frame-titlebar {
+  height: 38px;
+  background-color: #16181B;
+  display: flex;
+  align-items: center;
+  padding: 0 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.window-dots {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.window-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+
+.dot-close {
+  background-color: #FF5F56;
+}
+
+.dot-minimize {
+  background-color: #FFBD2E;
+}
+
+.dot-expand {
+  background-color: #27C93F;
+}
+
+/* Screen Image Viewport */
+.window-frame-screen {
+  width: 100%;
+  background-color: #0D0F12;
+  overflow: hidden;
+  display: flex;
+}
+
+.window-preview-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: cover;
+}
+
+/* Responsive Styles */
+@media (max-width: 1200px) {
+  .product-preview-section {
+    padding-left: 2.5rem;
+    padding-right: 2.5rem;
+  }
+
+  .product-preview-container {
+    gap: 3rem;
+  }
+}
+
+@media (max-width: 992px) {
+  .product-preview-container {
+    grid-template-columns: 1fr;
+    gap: 3.5rem;
+  }
+
+  .preview-description {
+    max-width: 100%;
+  }
+
+  .product-preview-section {
+    padding-top: 3.5rem;
+    padding-bottom: 5.5rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .product-preview-section {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+/* ---------------- 5. Split Value Proposition Section ---------------- */
+.home-split-values-section {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  background-color: #EDEDED;
+  padding: 6rem 4rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.split-values-container {
+  max-width: 1360px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5rem;
+}
+
+.split-val-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.split-val-col.right-col {
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  padding-left: 5rem;
+}
+
+.split-val-eyebrow {
+  display: inline-block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: #68707aba;
+  text-transform: uppercase;
+  margin-bottom: 1.25rem;
+}
+
+.split-val-title {
+  font-size: clamp(2rem, 3.2vw, 2.85rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: #111418;
+  margin: 0 0 1.25rem 0;
+}
+
+.split-val-desc {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #555d68;
+  max-width: 480px;
+  margin: 0 0 2.75rem 0;
+}
+
+/* Icons Grid */
+.split-val-icons-grid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.split-val-icons-grid.five-items {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.split-val-icons-grid.three-items {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.val-icon-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.val-svg-wrap {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  color: #111418;
+  margin-bottom: 0.4rem;
+}
+
+.val-item-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #111418;
+}
+
+.val-item-sub {
+  font-size: 0.76rem;
+  color: #727a85;
+  line-height: 1.35;
+}
+
+/* ---------------- 6. Dark Get Started CTA Banner ---------------- */
+.home-dark-cta-banner {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  background-color: #111317;
+  color: #FFFFFF;
+  padding: 6.5rem 4rem;
+}
+
+.dark-cta-container {
+  max-width: 1360px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4rem;
+}
+
+.dark-cta-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.dark-cta-eyebrow {
+  display: inline-block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: #8c939e;
+  text-transform: uppercase;
+  margin-bottom: 1.25rem;
+}
+
+.dark-cta-headline {
+  font-size: clamp(2.5rem, 4vw, 3.6rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: #FFFFFF;
+  margin: 0;
+}
+
+.dark-cta-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 440px;
+  gap: 1.75rem;
+}
+
+.dark-cta-desc {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #9ba1ab;
+  margin: 0;
+}
+
+.dark-cta-btn-white {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  background-color: #FFFFFF;
+  color: #111418;
+  padding: 0.8rem 1.65rem;
+  border-radius: 9999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2);
+}
+
+.dark-cta-btn-white:hover {
+  background-color: #F0F0F2;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* ---------------- 7. Home Footer ---------------- */
+.home-footer {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  background-color: #EDEDED;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 2.25rem 4rem;
+}
+
+.home-footer-container {
+  max-width: 1360px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #111418;
+}
+
+.footer-brand-name {
+  font-family: var(--font-primary, 'Inter', sans-serif);
+  font-weight: 700;
+  font-size: 0.88rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #111418;
+}
+
+.footer-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 2.5rem;
+}
+
+.footer-link {
+  color: #555d68;
+  text-decoration: none;
+  font-size: 0.86rem;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.footer-link:hover {
+  color: #111418;
+}
+
+.footer-tagline {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  font-size: 0.82rem;
+  color: #727a85;
+}
+
+.tagline-divider {
+  color: rgba(0, 0, 0, 0.15);
+}
+
+/* Responsive Styles for Final Sections */
+@media (max-width: 1200px) {
+  .home-split-values-section,
+  .home-dark-cta-banner,
+  .home-footer {
+    padding-left: 2.5rem;
+    padding-right: 2.5rem;
+  }
+
+  .split-values-container {
+    gap: 3rem;
+  }
+
+  .split-val-col.right-col {
+    padding-left: 3rem;
+  }
+
+  .split-val-icons-grid.five-items {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 992px) {
+  .split-values-container {
+    grid-template-columns: 1fr;
+    gap: 4rem;
+  }
+
+  .split-val-col.right-col {
+    border-left: none;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    padding-left: 0;
+    padding-top: 3.5rem;
+  }
+
+  .dark-cta-container {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2.5rem;
+  }
+
+  .home-footer-container {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.5rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-split-values-section,
+  .home-dark-cta-banner,
+  .home-footer {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+
+  .split-val-icons-grid.five-items,
+  .split-val-icons-grid.three-items {
+    grid-template-columns: 1fr;
+  }
+
+  .footer-nav-links {
+    flex-wrap: wrap;
+    gap: 1.5rem;
+  }
+}
+
+
+

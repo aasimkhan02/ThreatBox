@@ -1,0 +1,444 @@
+/* ---------------- History View Layout ---------------- */
+.history-layout {
+  display: flex;
+  width: 100%;
+  min-height: 100vh;
+  background-color: #EDEDED;
+  color: #111418;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.history-main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+/* ---------------- Topbar ---------------- */
+.history-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 1.25rem 3.5rem;
+  background: transparent;
+}
+
+/* ---------------- Content Body ---------------- */
+.history-content-body {
+  padding: 0 3.5rem 4rem 3.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+/* Header Text */
+.history-view-header {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-eyebrow {
+  font-size: 0.82rem;
+  color: #727a85;
+  margin-bottom: 0.45rem;
+  font-weight: 500;
+}
+
+.history-title {
+  font-size: 2.15rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #111418;
+  margin: 0 0 0.55rem 0;
+}
+
+.history-desc {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #5d6571;
+  margin: 0;
+}
+
+/* ---------------- Filter & Controls Toolbar ---------------- */
+.history-controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+/* Filter Pills Group */
+.filter-pills-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.filter-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 1rem;
+  border-radius: 9999px;
+  background-color: #FFFFFF;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: #555d68;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.filter-pill-btn:hover {
+  background-color: #F0F0F2;
+  color: #111418;
+}
+
+.filter-pill-btn.active {
+  background-color: #111418;
+  border-color: #111418;
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+/* Right Toolbar: Date Dropdown + Search Box */
+.history-right-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.date-filter-dropdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  background-color: #FFFFFF;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 0.55rem 0.95rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #3b424d;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.date-filter-dropdown:hover {
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+.table-search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.table-search-icon {
+  position: absolute;
+  left: 0.85rem;
+  color: #8c939e;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+.table-search-input {
+  background-color: #FFFFFF;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 0.55rem 1rem 0.55rem 2.3rem;
+  font-size: 0.82rem;
+  color: #111418;
+  width: 230px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.table-search-input::placeholder {
+  color: #9ba1ab;
+}
+
+.table-search-input:focus {
+  border-color: #111418;
+  width: 260px;
+}
+
+/* ---------------- Table Card Wrapper ---------------- */
+.history-table-card {
+  background-color: #FFFFFF;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.history-table thead {
+  background-color: #FAFAFB;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.history-table th {
+  padding: 0.85rem 1.25rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #727a85;
+  letter-spacing: -0.01em;
+}
+
+.history-table th.th-checkbox,
+.history-table td.td-checkbox {
+  width: 44px;
+  padding: 0.85rem 0.5rem 0.85rem 1.4rem;
+  text-align: center;
+}
+
+.history-table th.th-actions,
+.history-table td.td-actions {
+  text-align: right;
+  padding-right: 1.4rem;
+}
+
+.custom-table-checkbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  accent-color: #111418;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.history-table td {
+  padding: 0.95rem 1.25rem;
+  font-size: 0.84rem;
+  color: #3b424d;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  vertical-align: middle;
+}
+
+.history-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.history-table tbody tr:hover {
+  background-color: #F8F9FA;
+}
+
+/* File Name Cell */
+.td-filename-group {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.table-file-doc-icon {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #111418;
+  flex-shrink: 0;
+}
+
+.table-file-text-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.file-name-strong {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #111418;
+  cursor: pointer;
+}
+
+.file-name-strong:hover {
+  text-decoration: underline;
+}
+
+.file-hash-sub {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  color: #8c939e;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mini Score Ring */
+.score-cell-flex {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.mini-score-ring {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.score-num-bold {
+  font-weight: 700;
+  font-size: 0.84rem;
+  color: #111418;
+}
+
+/* Badges */
+.status-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge-status-malicious {
+  background-color: #FFE5E8;
+  color: #D32F2F;
+}
+
+.badge-status-suspicious {
+  background-color: #FFF3DD;
+  color: #D97706;
+}
+
+.badge-status-clean {
+  background-color: #E2F6ED;
+  color: #16A34A;
+}
+
+.badge-status-completed {
+  background-color: #E2E6EA;
+  color: #4B5563;
+}
+
+.badge-status-failed {
+  background-color: #E2E6EA;
+  color: #4B5563;
+}
+
+/* Submitted Date & Duration */
+.td-submitted-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.sub-date-text {
+  font-size: 0.82rem;
+  color: #111418;
+  font-weight: 500;
+}
+
+.sub-duration-sub {
+  font-size: 0.74rem;
+  color: #727a85;
+}
+
+/* Actions Cell Icon Buttons */
+.row-actions-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.action-icon-btn {
+  background: none;
+  border: none;
+  padding: 0.35rem;
+  border-radius: 6px;
+  color: #555d68;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.action-icon-btn:hover {
+  color: #111418;
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* ---------------- Table Footer Pagination ---------------- */
+.history-pagination-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.5rem;
+}
+
+.pagination-counter {
+  font-size: 0.82rem;
+  color: #727a85;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.page-num-btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 0.5rem;
+  border-radius: 8px;
+  background-color: #FFFFFF;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #3b424d;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.page-num-btn:hover {
+  background-color: #F0F0F2;
+  color: #111418;
+}
+
+.page-num-btn.active {
+  background-color: #111418;
+  border-color: #111418;
+  color: #FFFFFF;
+  font-weight: 700;
+}
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .history-table-card {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .history-topbar,
+  .history-content-body {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+
+  .history-controls-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

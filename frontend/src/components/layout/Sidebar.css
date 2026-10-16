@@ -1,0 +1,123 @@
+.app-sidebar {
+  width: 250px;
+  min-width: 250px;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  background-color: #FAFAFA;
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 2.2rem 1.4rem;
+  z-index: 30;
+  user-select: none;
+}
+
+.sidebar-top {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+/* Sidebar Brand */
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  background: none;
+  border: none;
+  padding: 0 0.5rem;
+  cursor: pointer;
+  color: #000000;
+  text-decoration: none;
+}
+
+.sidebar-box-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #000000;
+}
+
+.sidebar-brand-name {
+  font-family: var(--font-primary, 'Inter', sans-serif);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #000000;
+}
+
+/* Section Group (WORKSPACE, RESOURCES) */
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sidebar-section-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  color: #8c939e;
+  text-transform: uppercase;
+  padding: 0 0.75rem 0.4rem 0.75rem;
+  margin: 0;
+}
+
+.sidebar-divider {
+  width: 100%;
+  height: 1px;
+  background-color: rgba(0, 0, 0, 0.06);
+  margin: 1.25rem 0;
+}
+
+/* Nav Item Link */
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  background: none;
+  border: none;
+  color: #3b424d;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.sidebar-nav-item:hover {
+  background-color: #F0F0F2;
+  color: #111418;
+}
+
+.sidebar-nav-item.active {
+  background-color: #EAEAEA;
+  color: #111418;
+  font-weight: 600;
+}
+
+.sidebar-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #111418;
+  flex-shrink: 0;
+}
+
+/* Bottom Nav (Settings) */
+.sidebar-bottom {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  padding-top: 1.5rem;
+}

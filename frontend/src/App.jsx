@@ -1,28 +1,53 @@
 import React, { useState } from 'react'
 import './App.css'
 import Home from './pages/home/home'
-import AnalysisReport from './pages/report/AnalysisReport'
-import AnalyzePage from './pages/analyze/AnalyzePage'
+import Upload from './components/upload/Upload'
+import Dashboard from './components/dashboard/Dashboard'
+import History from './components/history/History'
 
 function App() {
-  // 'analyze' (Upload section), 'result' (Analysis Report / Dashboard), or 'home'
-  const [currentPage, setCurrentPage] = useState('analyze')
+  // 'home' | 'upload' | 'dashboard' | 'history'
+  const [currentPage, setCurrentPage] = useState('home')
+  const [selectedSample, setSelectedSample] = useState(null)
+
+  const handleOpenSampleReport = (sample) => {
+    setSelectedSample(sample)
+    setCurrentPage('dashboard')
+  }
+
+  const handleSidebarNavigate = (tab) => {
+    if (tab === 'new-analysis') setCurrentPage('upload')
+    else if (tab === 'dashboard' || tab === 'analyses') setCurrentPage('dashboard')
+    else if (tab === 'history' || tab === 'analysis-history') setCurrentPage('history')
+  }
 
   return (
     <div className="container">
       {currentPage === 'home' && (
-        <Home onOpenReport={() => setCurrentPage('result')} />
+        <Home onOpenReport={() => setCurrentPage('upload')} />
       )}
-      {currentPage === 'analyze' && (
-        <AnalyzePage
+      {currentPage === 'upload' && (
+        <Upload
           onNavigateHome={() => setCurrentPage('home')}
-          onOpenResult={() => setCurrentPage('result')}
+          onSelectSample={handleOpenSampleReport}
+          onNavigateDashboard={() => setCurrentPage('dashboard')}
+          onNavigateHistory={() => setCurrentPage('history')}
         />
       )}
-      {currentPage === 'result' && (
-        <AnalysisReport
+      {currentPage === 'dashboard' && (
+        <Dashboard
+          sampleData={selectedSample}
           onNavigateHome={() => setCurrentPage('home')}
-          onNavigateAnalyze={() => setCurrentPage('analyze')}
+          onNavigateUpload={() => setCurrentPage('upload')}
+          onNavigateTab={handleSidebarNavigate}
+        />
+      )}
+      {currentPage === 'history' && (
+        <History
+          onNavigateHome={() => setCurrentPage('home')}
+          onNavigateUpload={() => setCurrentPage('upload')}
+          onNavigateDashboard={() => setCurrentPage('dashboard')}
+          onSelectSample={handleOpenSampleReport}
         />
       )}
     </div>
@@ -30,5 +55,3 @@ function App() {
 }
 
 export default App
-
-
