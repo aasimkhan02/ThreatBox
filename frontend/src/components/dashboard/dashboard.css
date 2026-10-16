@@ -1717,10 +1717,9 @@
    FILE SYSTEM TAB STYLING
    ========================================================================== */
 .filesystem-tab-layout {
-  display: grid;
-  grid-template-columns: 1fr 370px;
+  display: flex;
+  flex-direction: column;
   gap: 1.5rem;
-  align-items: flex-start;
 }
 
 .filesystem-main-card {
@@ -1913,7 +1912,7 @@
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.78rem;
   color: #374151;
-  max-width: 480px;
+  max-width: 520px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -2011,12 +2010,9 @@
   background-color: #F9FAFB;
 }
 
-/* File Inspection Right Panel */
+/* File Inspection Horizontal Bottom Card */
 .fs-detail-panel {
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
+  padding: 1.5rem 1.75rem;
   border-radius: 14px;
 }
 
@@ -2025,6 +2021,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
+  margin-bottom: 1.25rem;
 }
 
 .fs-detail-file-title-group {
@@ -2040,7 +2037,7 @@
 }
 
 .fs-detail-filename {
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   font-weight: 700;
   color: #111418;
   margin: 0;
@@ -2048,7 +2045,7 @@
 
 .fs-detail-filepath {
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   color: #6B7280;
   margin: 0.2rem 0 0 0;
   word-break: break-all;
@@ -2075,10 +2072,11 @@
 .fs-detail-stats-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.75rem;
-  padding: 0.85rem 0;
+  gap: 1.5rem;
+  padding: 1rem 0;
   border-top: 1px solid rgba(0, 0, 0, 0.06);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  margin-bottom: 1.25rem;
 }
 
 .fs-detail-stat-col {
@@ -2088,25 +2086,46 @@
 }
 
 .fs-stat-label {
-  font-size: 0.74rem;
+  font-size: 0.76rem;
   color: #6B7280;
   font-weight: 500;
 }
 
 .fs-stat-val {
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   color: #111418;
   font-weight: 600;
+}
+
+/* Horizontal 2-Column Split for Bottom Content */
+.fs-detail-horizontal-body {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 2.5rem;
+}
+
+.fs-detail-body-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.fs-detail-body-right {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding-left: 2rem;
+  border-left: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .fs-section-block {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.75rem;
 }
 
 .fs-section-subtitle {
-  font-size: 0.84rem;
+  font-size: 0.88rem;
   font-weight: 700;
   color: #111418;
   margin: 0;
@@ -2115,17 +2134,17 @@
 .fs-kv-list {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.75rem;
 }
 
 .fs-kv-row {
   display: flex;
   align-items: center;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
 }
 
 .fs-kv-key {
-  width: 95px;
+  width: 120px;
   flex-shrink: 0;
   color: #6B7280;
   font-weight: 500;
@@ -2155,8 +2174,6 @@
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding-top: 0.5rem;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .fs-classification-label {
@@ -2169,12 +2186,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.55rem 0.85rem;
+  padding: 0.65rem 0.95rem;
   border-radius: 8px;
   background-color: #F9FAFB;
   border: 1px solid rgba(0, 0, 0, 0.06);
   color: #374151;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -2190,9 +2207,16 @@
   font-size: 0.78rem;
 }
 
-@media (max-width: 1200px) {
-  .filesystem-tab-layout {
+@media (max-width: 1024px) {
+  .fs-detail-horizontal-body {
     grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  .fs-detail-body-right {
+    padding-left: 0;
+    border-left: none;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    padding-top: 1.25rem;
   }
 }
 
@@ -2269,12 +2293,11 @@
   line-height: 1.1;
 }
 
-/* Split: Table vs Widgets Column */
+/* Split: Table vs Widgets - Horizontal Stacked Flow */
 .net-split-grid {
-  display: grid;
-  grid-template-columns: 1fr 370px;
+  display: flex;
+  flex-direction: column;
   gap: 1.5rem;
-  align-items: flex-start;
 }
 
 .net-main-table-card {
@@ -2496,11 +2519,12 @@
   gap: 0.35rem;
 }
 
-/* Widgets Column on Right */
+/* Horizontal Widgets Grid (Destinations, Top Domains, Top IPs) */
 .net-widgets-col {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
   gap: 1.5rem;
+  align-items: stretch;
 }
 
 .net-widget-card {
@@ -2629,7 +2653,7 @@
     grid-template-columns: repeat(3, 1fr);
   }
 
-  .net-split-grid {
+  .net-widgets-col {
     grid-template-columns: 1fr;
   }
 }
@@ -2644,10 +2668,9 @@
    DNS TAB STYLING
    ========================================================================== */
 .dns-tab-layout {
-  display: grid;
-  grid-template-columns: 1fr 370px;
+  display: flex;
+  flex-direction: column;
   gap: 1.5rem;
-  align-items: flex-start;
 }
 
 .dns-main-card {
@@ -2814,11 +2837,12 @@
   gap: 0.35rem;
 }
 
-/* Right Widgets Column */
+/* Horizontal Widgets Grid (DNS Summary, Top Queried Domains, Top Resolved IPs) */
 .dns-widgets-col {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1.15fr 1fr 1fr;
   gap: 1.5rem;
+  align-items: stretch;
 }
 
 .dns-widget-card {
@@ -2870,14 +2894,14 @@
 /* 4-pack DNS Summary */
 .dns-summary-mini-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.65rem;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
 }
 
 .dns-mini-box {
   background-color: #F9FAFB;
   border-radius: 10px;
-  padding: 0.75rem 0.5rem;
+  padding: 0.85rem 0.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2950,7 +2974,7 @@
 }
 
 @media (max-width: 1200px) {
-  .dns-tab-layout {
+  .dns-widgets-col {
     grid-template-columns: 1fr;
   }
 }
@@ -3310,10 +3334,9 @@
    MITRE ATT&CK TAB STYLING
    ========================================================================== */
 .mitre-tab-layout {
-  display: grid;
-  grid-template-columns: 1fr 370px;
+  display: flex;
+  flex-direction: column;
   gap: 1.5rem;
-  align-items: flex-start;
 }
 
 .mitre-main-card {
@@ -3544,7 +3567,7 @@
 
 .mitre-tech-name {
   color: #374151;
-  max-width: 320px;
+  max-width: 520px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -3632,13 +3655,30 @@
   gap: 0.35rem;
 }
 
-/* Right Detail Inspection Card */
+/* Horizontal Technique Inspection Card */
 .mitre-detail-card {
-  padding: 1.5rem;
+  padding: 1.5rem 1.75rem;
   border-radius: 14px;
+}
+
+.mitre-detail-split-body {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 2.5rem;
+}
+
+.mitre-detail-left-col {
   display: flex;
   flex-direction: column;
   gap: 1.15rem;
+  padding-right: 2rem;
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.mitre-detail-right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
 }
 
 .mitre-detail-header-row {
@@ -3672,10 +3712,10 @@
 }
 
 .mitre-detail-tech-name {
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 700;
   color: #111418;
-  margin: -0.35rem 0 0 0;
+  margin: 0;
   line-height: 1.35;
 }
 
@@ -3699,9 +3739,9 @@
 }
 
 .mitre-desc-paragraph {
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   color: #4B5563;
-  line-height: 1.45;
+  line-height: 1.5;
   margin: 0;
 }
 
@@ -3710,8 +3750,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  padding-top: 1.15rem;
 }
 
 .mitre-evidences-header {
@@ -3744,9 +3782,9 @@
 }
 
 .mitre-evidence-cards-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
 }
 
 .mitre-evidence-item {
@@ -3790,11 +3828,23 @@
   word-break: break-all;
 }
 
-@media (max-width: 1200px) {
-  .mitre-tab-layout {
+@media (max-width: 1100px) {
+  .mitre-detail-split-body {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  .mitre-detail-left-col {
+    padding-right: 0;
+    border-right: none;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    padding-bottom: 1.25rem;
+  }
+  .mitre-evidence-cards-list {
     grid-template-columns: 1fr;
   }
+}
 
+@media (max-width: 1200px) {
   .mitre-tactics-strip {
     grid-template-columns: repeat(3, 1fr);
   }
@@ -3810,10 +3860,10 @@
    IOCs TAB STYLING
    ========================================================================== */
 .iocs-tab-layout {
-  display: grid;
-  grid-template-columns: 1fr 370px;
+  display: flex;
+  flex-direction: column;
   gap: 1.5rem;
-  align-items: flex-start;
+  width: 100%;
 }
 
 .iocs-main-card {
@@ -3973,7 +4023,7 @@
 
 .ioc-val-text {
   color: #111418;
-  max-width: 260px;
+  max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3986,7 +4036,7 @@
 }
 
 .truncate-ioc-hash {
-  max-width: 220px;
+  max-width: 320px;
 }
 
 .ioc-arrow-cell {
@@ -4036,29 +4086,30 @@
   color: #6B7280;
 }
 
-/* Right Side Detail Inspection Card */
+/* Horizontal Bottom Inspection Card */
 .iocs-detail-card {
-  padding: 1.5rem;
+  padding: 1.5rem 1.75rem;
   border-radius: 14px;
   display: flex;
   flex-direction: column;
-  gap: 1.35rem;
+  gap: 1.25rem;
 }
 
 .ioc-detail-header-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .ioc-detail-title-group {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.75rem;
 }
 
 .ioc-lead-red-icon {
-  margin-top: 3px;
   display: flex;
   align-items: center;
 }
@@ -4100,16 +4151,27 @@
   background-color: #F3F4F6;
 }
 
-.ioc-detail-section {
+/* Horizontal 3-Column Split */
+.ioc-detail-horizontal-body {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr 1fr;
+  gap: 2rem;
+  align-items: flex-start;
+}
+
+.ioc-detail-col {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  padding-top: 1rem;
+  gap: 0.85rem;
+}
+
+.ioc-detail-col:not(:last-child) {
+  padding-right: 1.5rem;
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .ioc-section-title {
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   font-weight: 700;
   color: #111418;
   margin: 0;
@@ -4128,7 +4190,7 @@
 }
 
 .ioc-kv-key {
-  width: 135px;
+  width: 140px;
   flex-shrink: 0;
   color: #6B7280;
   font-weight: 500;
@@ -4227,9 +4289,17 @@
   font-weight: 600;
 }
 
-@media (max-width: 1200px) {
-  .iocs-tab-layout {
+@media (max-width: 1024px) {
+  .ioc-detail-horizontal-body {
     grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  
+  .ioc-detail-col:not(:last-child) {
+    padding-right: 0;
+    border-right: none;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    padding-bottom: 1.25rem;
   }
 }
 
@@ -4237,10 +4307,10 @@
    RAW EVENTS TAB STYLING
    ========================================================================== */
 .raw-events-tab-layout {
-  display: grid;
-  grid-template-columns: 1fr 370px;
+  display: flex;
+  flex-direction: column;
   gap: 1.5rem;
-  align-items: flex-start;
+  width: 100%;
 }
 
 .raw-events-main-card {
@@ -4410,7 +4480,7 @@
 
 .raw-details-col {
   color: #374151;
-  max-width: 320px;
+  max-width: 450px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4443,17 +4513,20 @@
   user-select: none;
 }
 
-/* Right Widgets Column */
+/* Bottom Inspection Row: Horizontal 2-Column Grid */
 .raw-right-widgets-col {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
   gap: 1.5rem;
+  align-items: stretch;
 }
 
 .raw-detail-card,
 .raw-json-card {
   padding: 1.35rem 1.5rem;
   border-radius: 14px;
+  display: flex;
+  flex-direction: column;
 }
 
 .raw-detail-header,
@@ -4519,7 +4592,7 @@
 }
 
 .raw-kv-key {
-  width: 110px;
+  width: 120px;
   flex-shrink: 0;
   color: #6B7280;
   font-weight: 500;
@@ -4561,6 +4634,7 @@
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px;
   padding: 0.85rem;
+  flex: 1;
   max-height: 290px;
   overflow-y: auto;
 }
@@ -4587,8 +4661,8 @@
   font-weight: 600;
 }
 
-@media (max-width: 1200px) {
-  .raw-events-tab-layout {
+@media (max-width: 1024px) {
+  .raw-right-widgets-col {
     grid-template-columns: 1fr;
   }
 }

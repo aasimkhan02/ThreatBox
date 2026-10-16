@@ -1672,63 +1672,69 @@ const Dashboard = ({
                   </div>
                 </div>
 
-                {/* File Information Section */}
-                <div className="fs-section-block">
-                  <h5 className="fs-section-subtitle">File Information</h5>
-                  <div className="fs-kv-list">
-                    <div className="fs-kv-row">
-                      <span className="fs-kv-key">Type</span>
-                      <span className="fs-kv-val">Dynamic Link Library (DLL)</span>
-                    </div>
-                    <div className="fs-kv-row">
-                      <span className="fs-kv-key">SHA256</span>
-                      <div className="fs-hash-copy-wrap">
-                        <span className="fs-kv-val mono-hash truncate-hash">c6b2d9f4a1e8c3d7b0f5a9e2...</span>
-                        <button type="button" className="btn-copy-hash" title="Copy SHA256">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                          </svg>
-                        </button>
+                {/* Horizontal 2-Column Body */}
+                <div className="fs-detail-horizontal-body">
+                  {/* Left Column: File Information */}
+                  <div className="fs-detail-body-left">
+                    <h5 className="fs-section-subtitle">File Information</h5>
+                    <div className="fs-kv-list">
+                      <div className="fs-kv-row">
+                        <span className="fs-kv-key">Type</span>
+                        <span className="fs-kv-val">Dynamic Link Library (DLL)</span>
                       </div>
-                    </div>
-                    <div className="fs-kv-row">
-                      <span className="fs-kv-key">MD5</span>
-                      <div className="fs-hash-copy-wrap">
-                        <span className="fs-kv-val mono-hash truncate-hash">5f2a3c9d4e7b1a8c6d0e2f1a...</span>
-                        <button type="button" className="btn-copy-hash" title="Copy MD5">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                          </svg>
-                        </button>
+                      <div className="fs-kv-row">
+                        <span className="fs-kv-key">SHA256</span>
+                        <div className="fs-hash-copy-wrap">
+                          <span className="fs-kv-val mono-hash truncate-hash">c6b2d9f4a1e8c3d7b0f5a9e2c4d6a7f1b8e3c0d9a2f4e6b7c1d3e5f...</span>
+                          <button type="button" className="btn-copy-hash" title="Copy SHA256">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    <div className="fs-kv-row">
-                      <span className="fs-kv-key">First Seen</span>
-                      <span className="fs-kv-val">Oct 11, 2026, 14:22:02</span>
-                    </div>
-                    <div className="fs-kv-row">
-                      <span className="fs-kv-key">Last Modified</span>
-                      <span className="fs-kv-val">Oct 11, 2026, 14:22:02</span>
+                      <div className="fs-kv-row">
+                        <span className="fs-kv-key">MD5</span>
+                        <div className="fs-hash-copy-wrap">
+                          <span className="fs-kv-val mono-hash truncate-hash">5f2a3c9d4e7b1a8c6d0e2f1a3b4c5d6e</span>
+                          <button type="button" className="btn-copy-hash" title="Copy MD5">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="fs-kv-row">
+                        <span className="fs-kv-key">First Seen</span>
+                        <span className="fs-kv-val">Oct 11, 2026, 14:22:02</span>
+                      </div>
+                      <div className="fs-kv-row">
+                        <span className="fs-kv-key">Last Modified</span>
+                        <span className="fs-kv-val">Oct 11, 2026, 14:22:02</span>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Classification */}
-                <div className="fs-section-block fs-classification-row">
-                  <span className="fs-classification-label">Classification</span>
-                  <span className="badge-severity-suspicious">Suspicious</span>
-                </div>
+                  {/* Right Column: Classification & YARA Matches */}
+                  <div className="fs-detail-body-right">
+                    {/* Classification */}
+                    <div className="fs-section-block fs-classification-row">
+                      <span className="fs-classification-label">Classification</span>
+                      <span className="badge-severity-suspicious">Suspicious</span>
+                    </div>
 
-                {/* YARA Matches */}
-                <div className="fs-section-block">
-                  <h5 className="fs-section-subtitle">YARA Matches</h5>
-                  <div className="fs-yara-pill-row">
-                    <span className="fs-yara-name">Generic_Malware_DLL</span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
+                    {/* YARA Matches */}
+                    <div className="fs-section-block">
+                      <h5 className="fs-section-subtitle">YARA Matches</h5>
+                      <div className="fs-yara-pill-row">
+                        <span className="fs-yara-name">Generic_Malware_DLL</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="9 18 15 12 9 6" />
+                        </svg>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3211,41 +3217,45 @@ const Dashboard = ({
                 </div>
               </div>
 
-              {/* Right Side: Technique Inspection Panel */}
+              {/* Bottom Inspection Card: Horizontal Layout */}
               <div className="dashboard-card mitre-detail-card">
-                {/* Header */}
-                <div className="mitre-detail-header-row">
-                  <div className="mitre-detail-title-group">
-                    <h3 className="mitre-detail-id">T1059.003</h3>
-                    <span className="badge-severity-high">High</span>
+                <div className="mitre-detail-split-body">
+                  {/* Left Column: Technique Info */}
+                  <div className="mitre-detail-left-col">
+                    <div className="mitre-detail-header-row">
+                      <div className="mitre-detail-title-group">
+                        <h3 className="mitre-detail-id">T1059.003</h3>
+                        <span className="badge-severity-high">High</span>
+                      </div>
+                      <a href="https://attack.mitre.org/techniques/T1059/003/" target="_blank" rel="noreferrer" className="mitre-link-icon" title="View on MITRE ATT&CK">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                          <polyline points="15 3 21 3 21 9" />
+                          <line x1="10" y1="14" x2="21" y2="3" />
+                        </svg>
+                      </a>
+                    </div>
+
+                    <p className="mitre-detail-tech-name">Command and Scripting Interpreter: Windows Command Shell</p>
+
+                    {/* Tactic Tag */}
+                    <div className="mitre-detail-tactic-row">
+                      <span className="mitre-label-txt">Tactic</span>
+                      <span className="badge-tactic-execution">Execution</span>
+                    </div>
+
+                    {/* Description */}
+                    <div className="mitre-detail-desc-block">
+                      <span className="mitre-label-txt">Description</span>
+                      <p className="mitre-desc-paragraph">
+                        Adversaries may abuse Windows command shell for execution of commands and scripts.
+                      </p>
+                    </div>
                   </div>
-                  <a href="https://attack.mitre.org/techniques/T1059/003/" target="_blank" rel="noreferrer" className="mitre-link-icon" title="View on MITRE ATT&CK">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                      <polyline points="15 3 21 3 21 9" />
-                      <line x1="10" y1="14" x2="21" y2="3" />
-                    </svg>
-                  </a>
-                </div>
 
-                <p className="mitre-detail-tech-name">Command and Scripting Interpreter: Windows Command Shell</p>
-
-                {/* Tactic Tag */}
-                <div className="mitre-detail-tactic-row">
-                  <span className="mitre-label-txt">Tactic</span>
-                  <span className="badge-tactic-execution">Execution</span>
-                </div>
-
-                {/* Description */}
-                <div className="mitre-detail-desc-block">
-                  <span className="mitre-label-txt">Description</span>
-                  <p className="mitre-desc-paragraph">
-                    Adversaries may abuse Windows command shell for execution of commands and scripts.
-                  </p>
-                </div>
-
-                {/* Evidences (12) */}
-                <div className="mitre-evidences-section">
+                  {/* Right Column: Evidences */}
+                  <div className="mitre-detail-right-col">
+                    <div className="mitre-evidences-section">
                   <div className="mitre-evidences-header">
                     <h5 className="mitre-evidences-title">Evidences (12)</h5>
                     <button type="button" className="btn-view-all-evidences">
@@ -3325,6 +3335,8 @@ const Dashboard = ({
                       <div className="evidence-info-wrap">
                         <span className="evidence-primary-text">Suspicious command</span>
                         <span className="evidence-sub-text mono-code">... -EncodedCommand ...</span>
+                      </div>
+                    </div>
                       </div>
                     </div>
                   </div>
@@ -3593,7 +3605,7 @@ const Dashboard = ({
                 </div>
               </div>
 
-              {/* Right Column: IOC Details Inspection Panel */}
+              {/* Bottom Inspection Card: Horizontal Layout */}
               <div className="dashboard-card iocs-detail-card">
                 {/* Header */}
                 <div className="ioc-detail-header-row">
@@ -3623,123 +3635,126 @@ const Dashboard = ({
                   </button>
                 </div>
 
-                {/* Reputation specs */}
-                <div className="ioc-detail-section">
-                  <h5 className="ioc-section-title">Reputation</h5>
-                  <div className="ioc-kv-list">
-                    <div className="ioc-kv-row">
-                      <span className="ioc-kv-key">Threat Intelligence</span>
-                      <span className="badge-rep-malicious">Malicious</span>
-                    </div>
-                    <div className="ioc-kv-row">
-                      <span className="ioc-kv-key">Confidence</span>
-                      <span className="badge-confidence-high">High</span>
-                    </div>
-                    <div className="ioc-kv-row">
-                      <span className="ioc-kv-key">First Seen</span>
-                      <span className="ioc-kv-val">Oct 11, 2026, 14:22:10</span>
-                    </div>
-                    <div className="ioc-kv-row">
-                      <span className="ioc-kv-key">Last Seen</span>
-                      <span className="ioc-kv-val">Oct 11, 2026, 14:22:45</span>
-                    </div>
-                    <div className="ioc-kv-row">
-                      <span className="ioc-kv-key">Observation Count</span>
-                      <span className="ioc-kv-val font-semibold">7</span>
-                    </div>
-                    <div className="ioc-kv-row">
-                      <span className="ioc-kv-key">ASN</span>
-                      <span className="ioc-kv-val">AS16276 (OVH SAS)</span>
-                    </div>
-                    <div className="ioc-kv-row">
-                      <span className="ioc-kv-key">Country</span>
-                      <span className="ioc-kv-val country-val">
-                        <span className="flag-fr">🇫🇷</span> France
-                      </span>
-                    </div>
-                    <div className="ioc-kv-row">
-                      <span className="ioc-kv-key">Organization</span>
-                      <span className="ioc-kv-val">OVH SAS</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Associated Artifacts */}
-                <div className="ioc-detail-section">
-                  <h5 className="ioc-section-title">Associated Artifacts</h5>
-                  <div className="ioc-artifacts-list">
-                    <div className="ioc-artifact-row">
-                      <div className="ioc-art-left">
-                        <span className="ioc-art-icon">🌐</span>
-                        <span className="ioc-art-name">Domains</span>
+                {/* Horizontal 3-Column Body */}
+                <div className="ioc-detail-horizontal-body">
+                  {/* Column 1: Reputation specs */}
+                  <div className="ioc-detail-col">
+                    <h5 className="ioc-section-title">Reputation</h5>
+                    <div className="ioc-kv-list">
+                      <div className="ioc-kv-row">
+                        <span className="ioc-kv-key">Threat Intelligence</span>
+                        <span className="badge-rep-malicious">Malicious</span>
                       </div>
-                      <div className="ioc-art-right">
-                        <span className="ioc-art-count">2</span>
-                        <span className="ioc-art-arrow">›</span>
+                      <div className="ioc-kv-row">
+                        <span className="ioc-kv-key">Confidence</span>
+                        <span className="badge-confidence-high">High</span>
                       </div>
-                    </div>
-
-                    <div className="ioc-artifact-row">
-                      <div className="ioc-art-left">
-                        <span className="ioc-art-icon">🔗</span>
-                        <span className="ioc-art-name">URLs</span>
+                      <div className="ioc-kv-row">
+                        <span className="ioc-kv-key">First Seen</span>
+                        <span className="ioc-kv-val">Oct 11, 2026, 14:22:10</span>
                       </div>
-                      <div className="ioc-art-right">
-                        <span className="ioc-art-count">1</span>
-                        <span className="ioc-art-arrow">›</span>
+                      <div className="ioc-kv-row">
+                        <span className="ioc-kv-key">Last Seen</span>
+                        <span className="ioc-kv-val">Oct 11, 2026, 14:22:45</span>
                       </div>
-                    </div>
-
-                    <div className="ioc-artifact-row">
-                      <div className="ioc-art-left">
-                        <span className="ioc-art-icon">📄</span>
-                        <span className="ioc-art-name">Files</span>
+                      <div className="ioc-kv-row">
+                        <span className="ioc-kv-key">Observation Count</span>
+                        <span className="ioc-kv-val font-semibold">7</span>
                       </div>
-                      <div className="ioc-art-right">
-                        <span className="ioc-art-count">1</span>
-                        <span className="ioc-art-arrow">›</span>
+                      <div className="ioc-kv-row">
+                        <span className="ioc-kv-key">ASN</span>
+                        <span className="ioc-kv-val">AS16276 (OVH SAS)</span>
                       </div>
-                    </div>
-
-                    <div className="ioc-artifact-row">
-                      <div className="ioc-art-left">
-                        <span className="ioc-art-icon">⚙️</span>
-                        <span className="ioc-art-name">Processes</span>
+                      <div className="ioc-kv-row">
+                        <span className="ioc-kv-key">Country</span>
+                        <span className="ioc-kv-val country-val">
+                          <span className="flag-fr">🇫🇷</span> France
+                        </span>
                       </div>
-                      <div className="ioc-art-right">
-                        <span className="ioc-art-count">3</span>
-                        <span className="ioc-art-arrow">›</span>
+                      <div className="ioc-kv-row">
+                        <span className="ioc-kv-key">Organization</span>
+                        <span className="ioc-kv-val">OVH SAS</span>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Threat Intelligence Sources */}
-                <div className="ioc-detail-section">
-                  <h5 className="ioc-section-title">Threat Intelligence Sources</h5>
-                  <div className="ioc-ti-sources-list">
-                    <div className="ioc-ti-source-row">
-                      <div className="ti-source-left">
-                        <span className="ti-source-icon text-blue">🛡️</span>
-                        <span className="ti-source-name">AlienVault OTX</span>
+                  {/* Column 2: Associated Artifacts */}
+                  <div className="ioc-detail-col">
+                    <h5 className="ioc-section-title">Associated Artifacts</h5>
+                    <div className="ioc-artifacts-list">
+                      <div className="ioc-artifact-row">
+                        <div className="ioc-art-left">
+                          <span className="ioc-art-icon">🌐</span>
+                          <span className="ioc-art-name">Domains</span>
+                        </div>
+                        <div className="ioc-art-right">
+                          <span className="ioc-art-count">2</span>
+                          <span className="ioc-art-arrow">›</span>
+                        </div>
                       </div>
-                      <span className="badge-rep-malicious">Malicious</span>
+
+                      <div className="ioc-artifact-row">
+                        <div className="ioc-art-left">
+                          <span className="ioc-art-icon">🔗</span>
+                          <span className="ioc-art-name">URLs</span>
+                        </div>
+                        <div className="ioc-art-right">
+                          <span className="ioc-art-count">1</span>
+                          <span className="ioc-art-arrow">›</span>
+                        </div>
+                      </div>
+
+                      <div className="ioc-artifact-row">
+                        <div className="ioc-art-left">
+                          <span className="ioc-art-icon">📄</span>
+                          <span className="ioc-art-name">Files</span>
+                        </div>
+                        <div className="ioc-art-right">
+                          <span className="ioc-art-count">1</span>
+                          <span className="ioc-art-arrow">›</span>
+                        </div>
+                      </div>
+
+                      <div className="ioc-artifact-row">
+                        <div className="ioc-art-left">
+                          <span className="ioc-art-icon">⚙️</span>
+                          <span className="ioc-art-name">Processes</span>
+                        </div>
+                        <div className="ioc-art-right">
+                          <span className="ioc-art-count">3</span>
+                          <span className="ioc-art-arrow">›</span>
+                        </div>
+                      </div>
                     </div>
+                  </div>
 
-                    <div className="ioc-ti-source-row">
-                      <div className="ti-source-left">
-                        <span className="ti-source-icon text-green">🔍</span>
-                        <span className="ti-source-name">VirusTotal</span>
+                  {/* Column 3: Threat Intelligence Sources */}
+                  <div className="ioc-detail-col">
+                    <h5 className="ioc-section-title">Threat Intelligence Sources</h5>
+                    <div className="ioc-ti-sources-list">
+                      <div className="ioc-ti-source-row">
+                        <div className="ti-source-left">
+                          <span className="ti-source-icon text-blue">🛡️</span>
+                          <span className="ti-source-name">AlienVault OTX</span>
+                        </div>
+                        <span className="badge-rep-malicious">Malicious</span>
                       </div>
-                      <span className="badge-vt-score">2 / 89</span>
-                    </div>
 
-                    <div className="ioc-ti-source-row">
-                      <div className="ti-source-left">
-                        <span className="ti-source-icon text-purple">🟣</span>
-                        <span className="ti-source-name">AbuseIPDB</span>
+                      <div className="ioc-ti-source-row">
+                        <div className="ti-source-left">
+                          <span className="ti-source-icon text-green">🔍</span>
+                          <span className="ti-source-name">VirusTotal</span>
+                        </div>
+                        <span className="badge-vt-score">2 / 89</span>
                       </div>
-                      <span className="badge-rep-malicious">Malicious</span>
+
+                      <div className="ioc-ti-source-row">
+                        <div className="ti-source-left">
+                          <span className="ti-source-icon text-purple">🟣</span>
+                          <span className="ti-source-name">AbuseIPDB</span>
+                        </div>
+                        <span className="badge-rep-malicious">Malicious</span>
+                      </div>
                     </div>
                   </div>
                 </div>
