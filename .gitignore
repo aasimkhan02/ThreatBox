@@ -24,3 +24,9 @@ frontend/dist/
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Generated Sandbox build artifacts
+/bin/sandbox-tools/
+
+# Per-job Sandbox workspaces, telemetry and logs
+/runtime/jobs/

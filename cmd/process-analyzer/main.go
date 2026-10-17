@@ -11,9 +11,14 @@ import (
 
 func main() {
 	path := `C:\ThreatBox\runtime\output\events.jsonl`
+	var expectedSampleNames []string
 
 	if len(os.Args) > 1 {
 		path = os.Args[1]
+	}
+
+	if len(os.Args) > 2 {
+		expectedSampleNames = os.Args[2:]
 	}
 
 	streamServer := stream.NewServer()
@@ -31,7 +36,7 @@ func main() {
 
 	fmt.Scanln()
 
-	if _, err := engine.Analyze(path, streamServer); err != nil {
+	if _, err := engine.Analyze(path, streamServer, expectedSampleNames...); err != nil {
 		fmt.Println("Analyzer error:", err)
 		os.Exit(1)
 	}

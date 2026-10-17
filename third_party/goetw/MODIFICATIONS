@@ -1,0 +1,21 @@
+# Modifications Log
+
+## Fork Information
+- Original Repository: github.com/0xrawsec/golang-etw
+- Fork Date: January 2024
+- Initial Fork Commit: [ee0b3d8df53e70f9762341537b83c2128ee52f33]
+
+## Changes
+### Refactored > 50% of the code by now.
+- Created a new repo since the original scope of the original repo was smaller than this project.
+- Barely any remains of the forked repo except function names.
+- ETW API work was redone with doc and many aditions.
+
+### Project Structure
+- Maintained original GPL-3.0 license structure
+- Added NOTICE file to acknowledge original work and modifications
+- Added MODIFICATIONS tracking file
+
+## Notes
+- Original copyright and license notices maintained as required by GPL-3.0
+- All modifications are also released under GPL-3.0

@@ -1,6 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import './dashboard.css'
 import Sidebar from '../layout/Sidebar'
+import { getJobDetails } from '../../api/client'
+import { transformAnalysisData } from '../../utils/formatAnalysis'
 
 const Dashboard = ({
   sampleData,
@@ -10,9 +12,28 @@ const Dashboard = ({
 }) => {
   const [activeTab, setActiveTab] = useState('Overview')
   const [searchQuery, setSearchQuery] = useState('')
+  const [loadedJob, setLoadedJob] = useState(null)
+  const [loading, setLoading] = useState(false)
 
-  // Default mock sample matching screenshot exactly
-  const sample = sampleData || {
+  // If a sample with only an ID was passed, fetch the full job details
+  useEffect(() => {
+    if (sampleData?.id && !sampleData?.rawDetails?.analysis_result && !sampleData?.analysis_result) {
+      setLoading(true)
+      getJobDetails(sampleData.id)
+        .then((data) => {
+          setLoadedJob(data)
+        })
+        .catch((err) => {
+          console.warn('Failed to load full job details:', err)
+        })
+        .finally(() => {
+          setLoading(false)
+        })
+    }
+  }, [sampleData?.id])
+
+  // Transformed sample data with real backend payload or fallback
+  const fallbackSample = {
     fileName: 'sample_malware.exe',
     status: 'Malicious',
     sha256: '37a8e5c6b0d3e9f72ca9d6e1f78b3c4d56e7f906a1b2c3d4e5f6a7b8c9d0e1f2',
@@ -20,8 +41,11 @@ const Dashboard = ({
     fileSize: '412 KB',
     analysisTime: '2m 34s',
     submitted: 'Oct 11, 2026, 14:22',
-    environment: 'Windows Sandbox'
+    environment: 'Windows Sandbox',
+    score: 92
   }
+
+  const sample = transformAnalysisData(loadedJob || sampleData?.rawDetails || sampleData, fallbackSample)
 
   const tabs = [
     'Overview',
@@ -36,11 +60,21 @@ const Dashboard = ({
     'Raw Events'
   ]
 
-  // Circular Gauge Math for score 92/100 (Semi-circle or ~240deg arc)
-  // Radius = 54, circumference of 180-deg arc = PI * 54 = ~169.6
-  const score = 92
+  // Circular Gauge Math based on dynamic score
+  const score = sample.score != null ? sample.score : 0
   const arcLength = 170
   const strokeDashoffset = arcLength - (score / 100) * arcLength
+
+  const handleDownloadReport = () => {
+    const reportData = sample.rawJson || JSON.stringify(sample, null, 2)
+    const blob = new Blob([reportData], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `threatbox-report-${sample.fileName}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="dashboard-layout">
@@ -115,7 +149,11 @@ const Dashboard = ({
             </div>
 
             <div className="sample-actions-group">
-              <button type="button" className="btn-download-report">
+              <button
+                type="button"
+                className="btn-download-report"
+                onClick={handleDownloadReport}
+              >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                   <polyline points="7 10 12 15 17 10" />
@@ -386,7 +424,7 @@ const Dashboard = ({
                           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
                         </svg>
                       </span>
-                      <span className="metric-mini-num">37</span>
+                      <span className="metric-mini-num">{sample.processCount}</span>
                       <span className="metric-mini-label">Processes Created</span>
                     </div>
 
@@ -400,7 +438,7 @@ const Dashboard = ({
                           <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
                         </svg>
                       </span>
-                      <span className="metric-mini-num">14</span>
+                      <span className="metric-mini-num">{sample.networkCount}</span>
                       <span className="metric-mini-label">Network Connections</span>
                     </div>
 
@@ -411,8 +449,8 @@ const Dashboard = ({
                           <polyline points="14 2 14 8 20 8" />
                         </svg>
                       </span>
-                      <span className="metric-mini-num">8</span>
-                      <span className="metric-mini-label">Files Dropped</span>
+                      <span className="metric-mini-num">{sample.fileCount}</span>
+                      <span className="metric-mini-label">File Operations</span>
                     </div>
 
                     <div className="metric-mini-box">
@@ -424,7 +462,7 @@ const Dashboard = ({
                           <rect x="3" y="14" width="7" height="7" />
                         </svg>
                       </span>
-                      <span className="metric-mini-num">12</span>
+                      <span className="metric-mini-num">{sample.registryCount}</span>
                       <span className="metric-mini-label">Registry Modifications</span>
                     </div>
                   </div>
@@ -4038,22 +4076,22 @@ const Dashboard = ({
                   <div className="raw-json-viewer-container">
                     <pre className="raw-json-pre">
                       <code>
-{`{
-  `}<span className="json-key">"event_id"</span>{`: `}<span className="json-number">1</span>{`,
-  `}<span className="json-key">"timestamp"</span>{`: `}<span className="json-string">"2026-10-11T14:22:10.123Z"</span>{`,
-  `}<span className="json-key">"event_type"</span>{`: `}<span className="json-string">"process_create"</span>{`,
-  `}<span className="json-key">"source"</span>{`: `}<span className="json-string">"sysmon"</span>{`,
-  `}<span className="json-key">"process"</span>{`: {
-    `}<span className="json-key">"pid"</span>{`: `}<span className="json-number">4320</span>{`,
-    `}<span className="json-key">"name"</span>{`: `}<span className="json-string">"sample_malware.exe"</span>{`,
-    `}<span className="json-key">"path"</span>{`: `}<span className="json-string">"C:\\\\Users\\\\WDAGUtilityAccount\\\\Desktop\\\\sample_malware.exe"</span>{`,
-    `}<span className="json-key">"command_line"</span>{`: `}<span className="json-string">"C:\\\\Users\\\\WDAGUtilityAccount\\\\Desktop\\\\sample_malware.exe"</span>{`,
-    `}<span className="json-key">"parent_pid"</span>{`: `}<span className="json-number">3216</span>{`,
-    `}<span className="json-key">"parent_name"</span>{`: `}<span className="json-string">"explorer.exe"</span>{`,
-    `}<span className="json-key">"user"</span>{`: `}<span className="json-string">"WDAGUtilityAccount"</span>{`
+                        {sample.rawJson || `{
+  "event_id": 1,
+  "timestamp": "2026-10-11T14:22:10.123Z",
+  "event_type": "process_create",
+  "source": "sysmon",
+  "process": {
+    "pid": 4320,
+    "name": "${sample.fileName}",
+    "path": "C:\\\\ThreatBox\\\\sample\\\\${sample.fileName}",
+    "command_line": "C:\\\\ThreatBox\\\\sample\\\\${sample.fileName}",
+    "parent_pid": 3216,
+    "parent_name": "explorer.exe",
+    "user": "WDAGUtilityAccount"
   },
-  `}<span className="json-key">"hashes"</span>{`: {
-    `}<span className="json-key">"sha256"</span>{`: `}<span className="json-string">"37a8e5c6b0d3e9f72ca9d6e1f78b3c4d56e7f906a1b2c3d4e5f6a7b8c9d0e1f2"</span>{`
+  "hashes": {
+    "sha256": "${sample.sha256}"
   }
 }`}
                       </code>

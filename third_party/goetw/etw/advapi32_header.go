@@ -1,0 +1,2858 @@
+//go:build windows
+
+package etw
+
+import (
+	"fmt"
+	"sync"
+	"syscall"
+	"time"
+	"unsafe"
+)
+
+// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wmistr/ns-wmistr-_wnode_header
+// v10.0.16299.0 /wmistr.h
+//
+// WNODE_HEADER flags are defined as follows
+/*
+   #define WNODE_FLAG_ALL_DATA        0x00000001 // set for WNODE_ALL_DATA
+   #define WNODE_FLAG_SINGLE_INSTANCE 0x00000002 // set for WNODE_SINGLE_INSTANCE
+   #define WNODE_FLAG_SINGLE_ITEM     0x00000004 // set for WNODE_SINGLE_ITEM
+   #define WNODE_FLAG_EVENT_ITEM      0x00000008 // set for WNODE_EVENT_ITEM
+
+                                               // Set if data block size is
+                                               // identical for all instances
+                                               // (used with  WNODE_ALL_DATA
+                                               // only)
+   #define WNODE_FLAG_FIXED_INSTANCE_SIZE 0x00000010
+
+   #define WNODE_FLAG_TOO_SMALL           0x00000020 // set for WNODE_TOO_SMALL
+
+                                   // Set when a data provider returns a
+                                   // WNODE_ALL_DATA in which the number of
+                                   // instances and their names returned
+                                   // are identical to those returned from the
+                                   // previous WNODE_ALL_DATA query. Only data
+                                   // blocks registered with dynamic instance
+                                   // names should use this flag.
+   #define WNODE_FLAG_INSTANCES_SAME  0x00000040
+
+                                   // Instance names are not specified in
+                                   // WNODE_ALL_DATA; values specified at
+                                   // registration are used instead. Always
+                                   // set for guids registered with static
+                                   // instance names
+   #define WNODE_FLAG_STATIC_INSTANCE_NAMES 0x00000080
+
+   #define WNODE_FLAG_INTERNAL      0x00000100  // Used internally by WMI
+
+                                   // timestamp should not be modified by
+                                   // a historical logger
+   #define WNODE_FLAG_USE_TIMESTAMP 0x00000200
+
+   #if (NTDDI_VERSION >= NTDDI_WINXP)
+   #define WNODE_FLAG_PERSIST_EVENT 0x00000400
+   #endif
+
+   #define WNODE_FLAG_EVENT_REFERENCE 0x00002000
+
+   // Set if Instance names are ansi. Only set when returning from
+   // WMIQuerySingleInstanceA and WMIQueryAllDataA
+   #define WNODE_FLAG_ANSI_INSTANCENAMES 0x00004000
+
+   // Set if WNODE is a method call
+   #define WNODE_FLAG_METHOD_ITEM     0x00008000
+
+   // Set if instance names originated from a PDO
+   #define WNODE_FLAG_PDO_INSTANCE_NAMES  0x00010000
+
+   // The second byte, except the first bit is used exclusively for tracing
+   #define WNODE_FLAG_TRACED_GUID   0x00020000 // denotes a trace
+
+   #define WNODE_FLAG_LOG_WNODE     0x00040000 // request to log Wnode
+
+   #define WNODE_FLAG_USE_GUID_PTR  0x00080000 // Guid is actually a pointer
+
+   #define WNODE_FLAG_USE_MOF_PTR   0x00100000 // MOF data are dereferenced
+
+   #if (NTDDI_VERSION >= NTDDI_WINXP)
+   #define WNODE_FLAG_NO_HEADER     0x00200000 // Trace without header
+   #endif
+
+   #if (NTDDI_VERSION >= NTDDI_VISTA)
+   #define WNODE_FLAG_SEND_DATA_BLOCK  0x00400000 // Data Block delivery
+   #endif
+
+   // Set for events that are WNODE_EVENT_REFERENCE
+   // Mask for event severity level. Level 0xff is the most severe type of event
+   #define WNODE_FLAG_SEVERITY_MASK 0xff000000
+*/
+
+// The WNODE_HEADER structure is the first member of all other WNODE_XXX structures. It contains information common to all such structures.
+const (
+	WNODE_FLAG_ALL_DATA              = 0x00000001
+	WNODE_FLAG_SINGLE_INSTANCE       = 0x00000002
+	WNODE_FLAG_SINGLE_ITEM           = 0x00000004
+	WNODE_FLAG_EVENT_ITEM            = 0x00000008
+	WNODE_FLAG_FIXED_INSTANCE_SIZE   = 0x00000010
+	WNODE_FLAG_TOO_SMALL             = 0x00000020
+	WNODE_FLAG_INSTANCES_SAME        = 0x00000040
+	WNODE_FLAG_STATIC_INSTANCE_NAMES = 0x00000080
+	WNODE_FLAG_INTERNAL              = 0x00000100
+	WNODE_FLAG_USE_TIMESTAMP         = 0x00000200
+	WNODE_FLAG_PERSIST_EVENT         = 0x00000400
+	WNODE_FLAG_EVENT_REFERENCE       = 0x00002000
+	WNODE_FLAG_ANSI_INSTANCENAMES    = 0x00004000
+	WNODE_FLAG_METHOD_ITEM           = 0x00008000
+	WNODE_FLAG_PDO_INSTANCE_NAMES    = 0x00010000
+	WNODE_FLAG_TRACED_GUID           = 0x00020000
+	WNODE_FLAG_ANSI_INSTANCENAwin32  = 0x00040000
+	WNODE_FLAG_USE_GUID_PTR          = 0x00080000
+	WNODE_FLAG_USE_MOF_PTR           = 0x00100000
+	WNODE_FLAG_NO_HEADER             = 0x00200000
+	WNODE_FLAG_SEND_DATA_BLOCK       = 0x00400000
+	WNODE_FLAG_VERSIONED_PROPERTIES  = 0x00800000
+	WNODE_FLAG_SEVERITY_MASK         = 0xff000000
+)
+
+//     10.0.16299.0 /evntrace.h
+
+//
+// predefined generic event types (0x00 to 0x09 reserved).
+//
+/*
+   #define EVENT_TRACE_TYPE_INFO               0x00  // Info or point event
+   #define EVENT_TRACE_TYPE_START              0x01  // Start event
+   #define EVENT_TRACE_TYPE_END                0x02  // End event
+   #define EVENT_TRACE_TYPE_STOP               0x02  // Stop event (WinEvent compatible)
+   #define EVENT_TRACE_TYPE_DC_START           0x03  // Collection start marker
+   #define EVENT_TRACE_TYPE_DC_END             0x04  // Collection end marker
+   #define EVENT_TRACE_TYPE_EXTENSION          0x05  // Extension/continuation
+   #define EVENT_TRACE_TYPE_REPLY              0x06  // Reply event
+   #define EVENT_TRACE_TYPE_DEQUEUE            0x07  // De-queue event
+   #define EVENT_TRACE_TYPE_RESUME             0x07  // Resume event (WinEvent compatible)
+   #define EVENT_TRACE_TYPE_CHECKPOINT         0x08  // Generic checkpoint event
+   #define EVENT_TRACE_TYPE_SUSPEND            0x08  // Suspend event (WinEvent compatible)
+   #define EVENT_TRACE_TYPE_WINEVT_SEND        0x09  // Send Event (WinEvent compatible)
+   #define EVENT_TRACE_TYPE_WINEVT_RECEIVE     0XF0  // Receive Event (WinEvent compatible)
+*/
+// Used in https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-event_trace_header
+
+const (
+	// predefined generic event types (0x00 to 0x09 reserved).
+
+	EVENT_TRACE_TYPE_INFO           = 0x00 // Info or point event
+	EVENT_TRACE_TYPE_START          = 0x01 // Start event
+	EVENT_TRACE_TYPE_END            = 0x02 // End event
+	EVENT_TRACE_TYPE_STOP           = 0x02 // Stop event (WinEvent compatible)
+	EVENT_TRACE_TYPE_DC_START       = 0x03 // Collection start marker
+	EVENT_TRACE_TYPE_DC_END         = 0x04 // Collection end marker
+	EVENT_TRACE_TYPE_EXTENSION      = 0x05 // Extension/continuation
+	EVENT_TRACE_TYPE_REPLY          = 0x06 // Reply event
+	EVENT_TRACE_TYPE_DEQUEUE        = 0x07 // De-queue event
+	EVENT_TRACE_TYPE_RESUME         = 0x07 // Resume event (WinEvent compatible)
+	EVENT_TRACE_TYPE_CHECKPOINT     = 0x08 // Generic checkpoint event
+	EVENT_TRACE_TYPE_SUSPEND        = 0x08 // Suspend event (WinEvent compatible)
+	EVENT_TRACE_TYPE_WINEVT_SEND    = 0x09 // Send Event (WinEvent compatible)
+	EVENT_TRACE_TYPE_WINEVT_RECEIVE = 0xf0 // Receive Event (WinEvent compatible)
+
+	// Event types for Process & Threads
+
+	EVENT_TRACE_TYPE_LOAD      = 0x0a // Load image
+	EVENT_TRACE_TYPE_TERMINATE = 0x0b // Terminate Process
+
+	// Event types for IO subsystem
+
+	EVENT_TRACE_TYPE_IO_READ       = 0x0a
+	EVENT_TRACE_TYPE_IO_WRITE      = 0x0b
+	EVENT_TRACE_TYPE_IO_READ_INIT  = 0x0c
+	EVENT_TRACE_TYPE_IO_WRITE_INIT = 0x0d
+	EVENT_TRACE_TYPE_IO_FLUSH      = 0x0e
+	EVENT_TRACE_TYPE_IO_FLUSH_INIT = 0x0f
+
+	// Event types for Memory subsystem
+
+	EVENT_TRACE_TYPE_MM_TF  = 0x0a // Transition fault
+	EVENT_TRACE_TYPE_MM_DZF = 0x0b // Demand Zero fault
+	EVENT_TRACE_TYPE_MM_COW = 0x0c // Copy on Write
+	EVENT_TRACE_TYPE_MM_GPF = 0x0d // Guard Page fault
+	EVENT_TRACE_TYPE_MM_HPF = 0x0e // Hard page fault
+	EVENT_TRACE_TYPE_MM_AV  = 0x0f // Access violation
+
+	// Event types for Network subsystem, all protocols
+
+	EVENT_TRACE_TYPE_SEND       = 0x0a // Send
+	EVENT_TRACE_TYPE_RECEIVE    = 0x0b // Receive
+	EVENT_TRACE_TYPE_CONNECT    = 0x0c // Connect
+	EVENT_TRACE_TYPE_DISCONNECT = 0x0d // Disconnect
+	EVENT_TRACE_TYPE_RETRANSMIT = 0x0e // ReTransmit
+	EVENT_TRACE_TYPE_ACCEPT     = 0x0f // Accept
+	EVENT_TRACE_TYPE_RECONNECT  = 0x10 // ReConnect
+	EVENT_TRACE_TYPE_CONNFAIL   = 0x11 // Fail
+	EVENT_TRACE_TYPE_COPY_TCP   = 0x12 // Copy in PendData
+	EVENT_TRACE_TYPE_COPY_ARP   = 0x13 // NDIS_STATUS_RESOURCES Copy
+	EVENT_TRACE_TYPE_ACKFULL    = 0x14 // A full data ACK
+	EVENT_TRACE_TYPE_ACKPART    = 0x15 // A Partial data ACK
+	EVENT_TRACE_TYPE_ACKDUP     = 0x16 // A Duplicate data ACK
+
+	// Event Types for the Header (to handle internal event headers)
+
+	EVENT_TRACE_TYPE_GUIDMAP    = 0x0a
+	EVENT_TRACE_TYPE_CONFIG     = 0x0b
+	EVENT_TRACE_TYPE_SIDINFO    = 0x0c
+	EVENT_TRACE_TYPE_SECURITY   = 0x0d
+	EVENT_TRACE_TYPE_DBGID_RSDS = 0x40
+
+	// Event Types for Registry subsystem
+
+	EVENT_TRACE_TYPE_REGCREATE             = 0x0A // NtCreateKey
+	EVENT_TRACE_TYPE_REGOPEN               = 0x0B // NtOpenKey
+	EVENT_TRACE_TYPE_REGDELETE             = 0x0C // NtDeleteKey
+	EVENT_TRACE_TYPE_REGQUERY              = 0x0D // NtQueryKey
+	EVENT_TRACE_TYPE_REGSETVALUE           = 0x0E // NtSetValueKey
+	EVENT_TRACE_TYPE_REGDELETEVALUE        = 0x0F // NtDeleteValueKey
+	EVENT_TRACE_TYPE_REGQUERYVALUE         = 0x10 // NtQueryValueKey
+	EVENT_TRACE_TYPE_REGENUMERATEKEY       = 0x11 // NtEnumerateKey
+	EVENT_TRACE_TYPE_REGENUMERATEVALUEKEY  = 0x12 // NtEnumerateValueKey
+	EVENT_TRACE_TYPE_REGQUERYMULTIPLEVALUE = 0x13 // NtQueryMultipleValueKey
+	EVENT_TRACE_TYPE_REGSETINFORMATION     = 0x14 // NtSetInformationKey
+	EVENT_TRACE_TYPE_REGFLUSH              = 0x15 // NtFlushKey
+	EVENT_TRACE_TYPE_REGKCBCREATE          = 0x16 // KcbCreate
+	EVENT_TRACE_TYPE_REGKCBDELETE          = 0x17 // KcbDelete
+	EVENT_TRACE_TYPE_REGKCBRUNDOWNBEGIN    = 0x18 // KcbRundownBegin
+	EVENT_TRACE_TYPE_REGKCBRUNDOWNEND      = 0x19 // KcbRundownEnd
+	EVENT_TRACE_TYPE_REGVIRTUALIZE         = 0x1A // VirtualizeKey
+	EVENT_TRACE_TYPE_REGCLOSE              = 0x1B // NtClose (KeyObject)
+	EVENT_TRACE_TYPE_REGSETSECURITY        = 0x1C // SetSecurityDescriptor (KeyObject)
+	EVENT_TRACE_TYPE_REGQUERYSECURITY      = 0x1D // QuerySecurityDescriptor (KeyObject)
+	EVENT_TRACE_TYPE_REGCOMMIT             = 0x1E // CmKtmNotification (TRANSACTION_NOTIFY_COMMIT)
+	EVENT_TRACE_TYPE_REGPREPARE            = 0x1F // CmKtmNotification (TRANSACTION_NOTIFY_PREPARE)
+	EVENT_TRACE_TYPE_REGROLLBACK           = 0x20 // CmKtmNotification (TRANSACTION_NOTIFY_ROLLBACK)
+	EVENT_TRACE_TYPE_REGMOUNTHIVE          = 0x21 // NtLoadKey variations + system hives
+
+	// Event types for system configuration records
+
+	EVENT_TRACE_TYPE_CONFIG_CPU          = 0x0A // CPU Configuration
+	EVENT_TRACE_TYPE_CONFIG_PHYSICALDISK = 0x0B // Physical Disk Configuration
+	EVENT_TRACE_TYPE_CONFIG_LOGICALDISK  = 0x0C // Logical Disk Configuration
+	EVENT_TRACE_TYPE_CONFIG_NIC          = 0x0D // NIC Configuration
+	EVENT_TRACE_TYPE_CONFIG_VIDEO        = 0x0E // Video Adapter Configuration
+	EVENT_TRACE_TYPE_CONFIG_SERVICES     = 0x0F // Active Services
+	EVENT_TRACE_TYPE_CONFIG_POWER        = 0x10 // ACPI Configuration
+	EVENT_TRACE_TYPE_CONFIG_NETINFO      = 0x11 // Networking Configuration
+	EVENT_TRACE_TYPE_CONFIG_OPTICALMEDIA = 0x12 // Optical Media Configuration
+
+	EVENT_TRACE_TYPE_CONFIG_IRQ             = 0x15 // IRQ assigned to devices
+	EVENT_TRACE_TYPE_CONFIG_PNP             = 0x16 // PnP device info
+	EVENT_TRACE_TYPE_CONFIG_IDECHANNEL      = 0x17 // Primary/Secondary IDE channel Configuration
+	EVENT_TRACE_TYPE_CONFIG_NUMANODE        = 0x18 // Numa configuration
+	EVENT_TRACE_TYPE_CONFIG_PLATFORM        = 0x19 // Platform Configuration
+	EVENT_TRACE_TYPE_CONFIG_PROCESSORGROUP  = 0x1A // Processor Group Configuration
+	EVENT_TRACE_TYPE_CONFIG_PROCESSORNUMBER = 0x1B // ProcessorIndex -> ProcNumber mapping
+	EVENT_TRACE_TYPE_CONFIG_DPI             = 0x1C // Display DPI Configuration
+	EVENT_TRACE_TYPE_CONFIG_CI_INFO         = 0x1D // Display System Code Integrity Information
+	EVENT_TRACE_TYPE_CONFIG_MACHINEID       = 0x1E // SQM Machine Id
+
+	// Event types for Optical IO subsystem
+
+	EVENT_TRACE_TYPE_OPTICAL_IO_READ       = 0x37
+	EVENT_TRACE_TYPE_OPTICAL_IO_WRITE      = 0x38
+	EVENT_TRACE_TYPE_OPTICAL_IO_FLUSH      = 0x39
+	EVENT_TRACE_TYPE_OPTICAL_IO_READ_INIT  = 0x3a
+	EVENT_TRACE_TYPE_OPTICAL_IO_WRITE_INIT = 0x3b
+	EVENT_TRACE_TYPE_OPTICAL_IO_FLUSH_INIT = 0x3c
+
+	// Event types for Filter Manager
+
+	EVENT_TRACE_TYPE_FLT_PREOP_INIT        = 0x60
+	EVENT_TRACE_TYPE_FLT_POSTOP_INIT       = 0x61
+	EVENT_TRACE_TYPE_FLT_PREOP_COMPLETION  = 0x62
+	EVENT_TRACE_TYPE_FLT_POSTOP_COMPLETION = 0x63
+	EVENT_TRACE_TYPE_FLT_PREOP_FAILURE     = 0x64
+	EVENT_TRACE_TYPE_FLT_POSTOP_FAILURE    = 0x65
+
+	// Enable flags for Kernel Events
+	// https://docs.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-event_trace_properties
+	EVENT_TRACE_FLAG_PROCESS    = 0x00000001 // process start & end
+	EVENT_TRACE_FLAG_THREAD     = 0x00000002 // thread start & end
+	EVENT_TRACE_FLAG_IMAGE_LOAD = 0x00000004 // image load
+
+	EVENT_TRACE_FLAG_DISK_IO      = 0x00000100 // Physical disk IO
+	EVENT_TRACE_FLAG_DISK_FILE_IO = 0x00000200 // Requires disk IO
+
+	EVENT_TRACE_FLAG_MEMORY_PAGE_FAULTS = 0x00001000 // All page faults
+	EVENT_TRACE_FLAG_MEMORY_HARD_FAULTS = 0x00002000 // Hard faults only
+
+	EVENT_TRACE_FLAG_NETWORK_TCPIP = 0x00010000 // TCP/IP send & receive
+
+	EVENT_TRACE_FLAG_REGISTRY = 0x00020000 // Registry calls
+	EVENT_TRACE_FLAG_DBGPRINT = 0x00040000 // DbgPrint(ex) Calls
+
+	// Enable flags for Kernel Events on Vista and above
+
+	EVENT_TRACE_FLAG_PROCESS_COUNTERS = 0x00000008 // Process performance counters
+	EVENT_TRACE_FLAG_CSWITCH          = 0x00000010 // Context switches
+	EVENT_TRACE_FLAG_DPC              = 0x00000020 // Deferred procedure calls
+	EVENT_TRACE_FLAG_INTERRUPT        = 0x00000040 // Interrupts
+	EVENT_TRACE_FLAG_SYSTEMCALL       = 0x00000080 // System calls
+
+	EVENT_TRACE_FLAG_DISK_IO_INIT = 0x00000400 // Physical disk IO initiation
+	EVENT_TRACE_FLAG_ALPC         = 0x00100000 // ALPC traces
+	EVENT_TRACE_FLAG_SPLIT_IO     = 0x00200000 // Split IO traces (VolumeManager)
+
+	EVENT_TRACE_FLAG_DRIVER       = 0x00800000 // Driver delays
+	EVENT_TRACE_FLAG_PROFILE      = 0x01000000 // Sample-based profiling
+	EVENT_TRACE_FLAG_FILE_IO      = 0x02000000 // File IO
+	EVENT_TRACE_FLAG_FILE_IO_INIT = 0x04000000 // File IO initiation
+
+	// Enable flags for Kernel Events on Win7 and above
+
+	EVENT_TRACE_FLAG_DISPATCHER    = 0x00000800 // scheduler (ReadyThread)
+	EVENT_TRACE_FLAG_VIRTUAL_ALLOC = 0x00004000 // VM operations
+
+	// Enable flags for Kernel Events on Win8 and above
+
+	EVENT_TRACE_FLAG_VAMAP        = 0x00008000 // map/unmap (excluding images)
+	EVENT_TRACE_FLAG_NO_SYSCONFIG = 0x10000000 // Do not do sys config rundown
+
+	// Enable flags for Kernel Events on Threshold and above
+
+	EVENT_TRACE_FLAG_JOB          = 0x00080000 // job start & end
+	EVENT_TRACE_FLAG_DEBUG_EVENTS = 0x00400000 // debugger events (break/continue/...)
+
+	// Pre-defined Enable flags for everybody else
+
+	EVENT_TRACE_FLAG_EXTENSION      = 0x80000000 // Indicates more flags
+	EVENT_TRACE_FLAG_FORWARD_WMI    = 0x40000000 // Can forward to WMI
+	EVENT_TRACE_FLAG_ENABLE_RESERVE = 0x20000000 // Reserved
+
+	// Logger Mode flags
+	EVENT_TRACE_FILE_MODE_NONE       = 0x00000000 // Logfile is off
+	EVENT_TRACE_FILE_MODE_SEQUENTIAL = 0x00000001 // Log sequentially
+	EVENT_TRACE_FILE_MODE_CIRCULAR   = 0x00000002 // Log in circular manner
+	EVENT_TRACE_FILE_MODE_APPEND     = 0x00000004 // Append sequential log
+
+	EVENT_TRACE_REAL_TIME_MODE       = 0x00000100 // Real-time mode on
+	EVENT_TRACE_DELAY_OPEN_FILE_MODE = 0x00000200 // Delay opening file
+	EVENT_TRACE_BUFFERING_MODE       = 0x00000400 // Buffering mode only
+	EVENT_TRACE_PRIVATE_LOGGER_MODE  = 0x00000800 // Process Private Logger
+	EVENT_TRACE_ADD_HEADER_MODE      = 0x00001000 // Add a logfile header
+
+	EVENT_TRACE_USE_GLOBAL_SEQUENCE = 0x00004000 // Use global sequence number
+	EVENT_TRACE_USE_LOCAL_SEQUENCE  = 0x00008000 // Use local sequence number
+
+	EVENT_TRACE_RELOG_MODE = 0x00010000 // Relogger
+
+	EVENT_TRACE_USE_PAGED_MEMORY = 0x01000000 // Use pageable buffers
+
+	// Logger Mode flags on XP and above
+
+	EVENT_TRACE_FILE_MODE_NEWFILE     = 0x00000008 // Auto-switch log file
+	EVENT_TRACE_FILE_MODE_PREALLOCATE = 0x00000020 // Pre-allocate mode
+
+	// Logger Mode flags on Vista and above
+
+	EVENT_TRACE_NONSTOPPABLE_MODE   = 0x00000040 // Session cannot be stopped (Autologger only)
+	EVENT_TRACE_SECURE_MODE         = 0x00000080 // Secure session
+	EVENT_TRACE_USE_KBYTES_FOR_SIZE = 0x00002000 // Use KBytes as file size unit
+	EVENT_TRACE_PRIVATE_IN_PROC     = 0x00020000 // In process private logger
+
+	EVENT_TRACE_MODE_RESERVED = 0x00100000 // Reserved bit, used to signal Heap/Critsec tracing
+
+	// Logger Mode flags on Win7 and above
+
+	EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING = 0x10000000 // Use this for low frequency sessions.
+
+	// Logger Mode flags on Win8 and above
+
+	EVENT_TRACE_SYSTEM_LOGGER_MODE         = 0x02000000 // Receive events from SystemTraceProvider
+	EVENT_TRACE_ADDTO_TRIAGE_DUMP          = 0x80000000 // Add ETW buffers to triage dumps
+	EVENT_TRACE_STOP_ON_HYBRID_SHUTDOWN    = 0x00400000 // Stop on hybrid shutdown
+	EVENT_TRACE_PERSIST_ON_HYBRID_SHUTDOWN = 0x00800000 // Persist on hybrid shutdown
+
+	// Logger Mode flags on Blue and above
+
+	EVENT_TRACE_INDEPENDENT_SESSION_MODE = 0x08000000 // Independent logger session
+
+	// ControlTrace Codes
+
+	EVENT_TRACE_CONTROL_QUERY  = 0
+	EVENT_TRACE_CONTROL_STOP   = 1
+	EVENT_TRACE_CONTROL_UPDATE = 2
+
+	// Flush ControlTrace Codes for XP and above
+
+	EVENT_TRACE_CONTROL_FLUSH = 3 // Flushes all the buffers
+
+	// ...
+
+	// Flags to indicate to consumer which fields
+	// in the EVENT_TRACE_HEADER are valid
+
+	EVENT_TRACE_USE_PROCTIME  = 0x0001 // ProcessorTime field is valid
+	EVENT_TRACE_USE_NOCPUTIME = 0x0002 // No Kernel/User/Processor Times
+)
+
+const (
+	EVENT_CONTROL_CODE_DISABLE_PROVIDER = 0
+	EVENT_CONTROL_CODE_ENABLE_PROVIDER  = 1
+	EVENT_CONTROL_CODE_CAPTURE_STATE    = 2
+)
+
+// v10.0.16299.0 evntrace.h
+
+const (
+	// Predefined Event Tracing Levels for Software/Debug Tracing
+	//
+	// Trace Level is UCHAR and passed in through the EnableLevel parameter
+	// in EnableTrace API. It is retrieved by the provider using the
+	// GetTraceEnableLevel macro. It should be interpreted as an integer value
+	// to mean everything at or below that level will be traced.
+	//
+	// Here are the possible Levels.
+
+	TRACE_LEVEL_NONE        = 0 // Tracing is not on
+	TRACE_LEVEL_CRITICAL    = 1 // Abnormal exit or termination
+	TRACE_LEVEL_FATAL       = 1 // Deprecated name for Abnormal exit or termination
+	TRACE_LEVEL_ERROR       = 2 // Severe errors that need logging
+	TRACE_LEVEL_WARNING     = 3 // Warnings such as allocation failure
+	TRACE_LEVEL_INFORMATION = 4 // Includes non-error cases(e.g.,Entry-Exit)
+	TRACE_LEVEL_VERBOSE     = 5 // Detailed traces from intermediate steps
+	TRACE_LEVEL_RESERVED6   = 6
+	TRACE_LEVEL_RESERVED7   = 7
+	TRACE_LEVEL_RESERVED8   = 8
+	TRACE_LEVEL_RESERVED9   = 9
+)
+
+// evntcons.h
+// used in ProcessTraceMode for
+// https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-event_trace_logfilew
+const (
+	PROCESS_TRACE_MODE_REAL_TIME     = 0x00000100
+	PROCESS_TRACE_MODE_RAW_TIMESTAMP = 0x00001000
+	PROCESS_TRACE_MODE_EVENT_RECORD  = 0x10000000
+)
+
+// evntcons.h
+// used in Flags for EVENT_HEADER
+// https://learn.microsoft.com/en-us/windows/win32/api/evntcons/ns-evntcons-event_header
+const (
+	EVENT_HEADER_FLAG_EXTENDED_INFO   = 0x0001
+	EVENT_HEADER_FLAG_PRIVATE_SESSION = 0x0002
+	EVENT_HEADER_FLAG_STRING_ONLY     = 0x0004
+	EVENT_HEADER_FLAG_TRACE_MESSAGE   = 0x0008
+	EVENT_HEADER_FLAG_NO_CPUTIME      = 0x0010
+	EVENT_HEADER_FLAG_32_BIT_HEADER   = 0x0020
+	EVENT_HEADER_FLAG_64_BIT_HEADER   = 0x0040
+	EVENT_HEADER_FLAG_DECODE_GUID     = 0x0080
+	EVENT_HEADER_FLAG_CLASSIC_HEADER  = 0x0100
+	EVENT_HEADER_FLAG_PROCESSOR_INDEX = 0x0200
+)
+
+// evntcons.h
+// used in ExtType for EVENT_HEADER_EXTENDED_DATA_ITEM
+// https://learn.microsoft.com/en-us/windows/win32/api/evntcons/ns-evntcons-event_header_extended_data_item
+const (
+	EVENT_HEADER_EXT_TYPE_RELATED_ACTIVITYID = 0x0001
+	EVENT_HEADER_EXT_TYPE_SID                = 0x0002
+	EVENT_HEADER_EXT_TYPE_TS_ID              = 0x0003
+	EVENT_HEADER_EXT_TYPE_INSTANCE_INFO      = 0x0004
+	EVENT_HEADER_EXT_TYPE_STACK_TRACE32      = 0x0005
+	EVENT_HEADER_EXT_TYPE_STACK_TRACE64      = 0x0006
+	EVENT_HEADER_EXT_TYPE_PEBS_INDEX         = 0x0007
+	EVENT_HEADER_EXT_TYPE_PMC_COUNTERS       = 0x0008
+	EVENT_HEADER_EXT_TYPE_PSM_KEY            = 0x0009
+	EVENT_HEADER_EXT_TYPE_EVENT_KEY          = 0x000A
+	EVENT_HEADER_EXT_TYPE_EVENT_SCHEMA_TL    = 0x000B
+	EVENT_HEADER_EXT_TYPE_PROV_TRAITS        = 0x000C
+	EVENT_HEADER_EXT_TYPE_PROCESS_START_KEY  = 0x000D
+	EVENT_HEADER_EXT_TYPE_CONTROL_GUID       = 0x000E
+	EVENT_HEADER_EXT_TYPE_QPC_DELTA          = 0x000F
+	EVENT_HEADER_EXT_TYPE_CONTAINER_ID       = 0x0010
+	EVENT_HEADER_EXT_TYPE_STACK_KEY32        = 0x0011
+	EVENT_HEADER_EXT_TYPE_STACK_KEY64        = 0x0012
+	EVENT_HEADER_EXT_TYPE_MAX                = 0x0013
+)
+
+// evntcons.h
+// used in EventProperty for EVENT_HEADER
+// https://learn.microsoft.com/en-us/windows/win32/api/evntcons/ns-evntcons-event_header
+const (
+	EVENT_HEADER_PROPERTY_XML             = 0x0001
+	EVENT_HEADER_PROPERTY_FORWARDED_XML   = 0x0002
+	EVENT_HEADER_PROPERTY_LEGACY_EVENTLOG = 0x0004
+)
+
+//////////////////////////////////////////////////////////////////
+
+// https://learn.microsoft.com/en-us/windows/win32/etw/wnode-header
+// v10.0.16299.0 /wmistr.h
+/*
+typedef struct _WNODE_HEADER
+{
+    ULONG BufferSize;        // Size of entire buffer inclusive of this ULONG
+    ULONG ProviderId;    // Provider Id of driver returning this buffer
+    union
+    {
+        ULONG64 HistoricalContext;  // Logger use
+        struct
+            {
+            ULONG Version;           // Reserved
+            ULONG Linkage;           // Linkage field reserved for WMI
+        } DUMMYSTRUCTNAME;
+    } DUMMYUNIONNAME;
+
+    union
+    {
+        ULONG CountLost;         // Reserved
+        HANDLE KernelHandle;     // Kernel handle for data block
+        LARGE_INTEGER TimeStamp; // Timestamp as returned in units of 100ns
+                                 // since 1/1/1601
+    } DUMMYUNIONNAME2;
+    GUID Guid;                  // Guid for data block returned with results
+    ULONG ClientContext;
+    ULONG Flags;             // Flags, see WNODE_ flags above this.
+} WNODE_HEADER, *PWNODE_HEADER;
+*/
+type WnodeHeader struct {
+	BufferSize    uint32 // Size of entire buffer inclusive of this ULONG
+	ProviderId    uint32 // Provider Id of driver returning this buffer
+	Union1        uint64 // [Check C interface]
+	Union2        int64  // [Check C interface]
+	Guid          GUID   // Guid for data block returned with results
+	ClientContext uint32
+	Flags         uint32 // Flags, see WNODE_ flags above this.
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-event_trace_properties
+// v10.0.19041.0 \evntrace.h
+/*
+typedef struct _EVENT_TRACE_PROPERTIES {
+    WNODE_HEADER Wnode;
+//
+// data provided by caller
+    ULONG BufferSize;                   // buffer size for logging (kbytes)
+    ULONG MinimumBuffers;               // minimum to preallocate
+    ULONG MaximumBuffers;               // maximum buffers allowed
+    ULONG MaximumFileSize;              // maximum logfile size (in MBytes)
+    ULONG LogFileMode;                  // sequential, circular
+    ULONG FlushTimer;                   // buffer flush timer, in seconds
+    ULONG EnableFlags;                  // trace enable flags
+    union {
+        LONG  AgeLimit;                 // unused
+        LONG  FlushThreshold;           // Number of buffers to fill before flushing
+    } DUMMYUNIONNAME;
+
+// data returned to caller
+    ULONG NumberOfBuffers;              // no of buffers in use
+    ULONG FreeBuffers;                  // no of buffers free
+    ULONG EventsLost;                   // event records lost
+    ULONG BuffersWritten;               // no of buffers written to file
+    ULONG LogBuffersLost;               // no of logfile write failures
+    ULONG RealTimeBuffersLost;          // no of rt delivery failures
+    HANDLE LoggerThreadId;              // thread id of Logger
+    ULONG LogFileNameOffset;            // Offset to LogFileName
+    ULONG LoggerNameOffset;             // Offset to LoggerName
+} EVENT_TRACE_PROPERTIES, *PEVENT_TRACE_PROPERTIES;
+*/
+
+// The EVENT_TRACE_PROPERTIES structure contains information about an event tracing session.
+// You use this structure with APIs such as StartTrace and ControlTrace when defining, updating, or querying the properties of a session.
+type EventTraceProperties struct {
+	Wnode WnodeHeader // https://learn.microsoft.com/en-us/windows/win32/etw/wnode-header
+
+	// data provided by caller
+	BufferSize      uint32 // buffer size for logging (kbytes)
+	MinimumBuffers  uint32 // minimum to preallocate
+	MaximumBuffers  uint32 // maximum buffers allowed
+	MaximumFileSize uint32 // maximum logfile size (in MBytes)
+	LogFileMode     uint32 // sequential, circular
+	FlushTimer      uint32 // buffer flush timer, in seconds
+	EnableFlags     uint32 // trace enable flags
+	AgeLimit        int32  // union(AgeLimit // Not used , FlushThreshold // Number of buffers to fill before flushing)
+
+	// data returned to caller
+	NumberOfBuffers     uint32         // no of buffers in use
+	FreeBuffers         uint32         // no of buffers free
+	EventsLost          uint32         // event records lost
+	BuffersWritten      uint32         // no of buffers written to file
+	LogBuffersLost      uint32         // no of logfile write failures
+	RealTimeBuffersLost uint32         // no of rt delivery failures
+	LoggerThreadId      syscall.Handle // thread id of Logger
+	LogFileNameOffset   uint32         // Offset to LogFileName
+	LoggerNameOffset    uint32         // Offset to LoggerName
+}
+
+// The session name (LoggerName) is limited to 1,024 characters.
+// The session name is case-insensitive.
+// The log file name is limited to 1,024 characters.
+// The log file name must follow the session name in memory
+type EventTracePropertyData struct {
+	EventTraceProperties
+	LoggerName  [256]uint16  // max 1024 per microsoft doc, but 256 is enough
+	LogFileName [1024]uint16 // max 1024 per microsoft doc
+}
+
+func NewEventTraceSessionProperties(sessionName string) (*EventTracePropertyData, uint32) {
+	return &EventTracePropertyData{}, uint32(unsafe.Sizeof(EventTracePropertyData{}))
+}
+
+// Only if a name is present
+// null terminated unicode string.
+func (e *EventTracePropertyData) GetTraceName() *uint16 {
+	if e.LoggerNameOffset == 0 || e.LoggerNameOffset >= e.Wnode.BufferSize {
+		return nil
+	}
+	//return &e.LoggerName[0]
+	return (*uint16)(unsafe.Pointer(uintptr(unsafe.Pointer(e)) + uintptr(e.LoggerNameOffset)))
+}
+
+func (e *EventTracePropertyData) GetFileName() *uint16 {
+	if e.Wnode.BufferSize >= e.LogFileNameOffset {
+		return &e.LogFileName[0]
+	} else {
+		return nil
+	}
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-event_trace_properties_v2
+// v10.0.19041.0 - evntrace.h
+/*
+typedef struct _EVENT_TRACE_PROPERTIES_V2 {
+    WNODE_HEADER Wnode;                  // Always have WNODE_FLAG_VERSIONED_PROPERTIES.
+    //
+    // data provided by caller
+    ULONG BufferSize;                    // buffer size for logging (kbytes)
+    ULONG MinimumBuffers;                // minimum to preallocate
+    ULONG MaximumBuffers;                // maximum buffers allowed
+    ULONG MaximumFileSize;               // maximum logfile size (in MBytes)
+    ULONG LogFileMode;                   // sequential, circular
+    ULONG FlushTimer;                    // buffer flush timer, in seconds
+    ULONG EnableFlags;                   // trace enable flags
+    union {
+        LONG  AgeLimit;                  // unused
+        LONG  FlushThreshold;            // Number of buffers to fill before flushing
+    } DUMMYUNIONNAME;
+
+    // data returned to caller
+    ULONG NumberOfBuffers;               // no of buffers in use
+    ULONG FreeBuffers;                   // no of buffers free
+    ULONG EventsLost;                    // event records lost
+    ULONG BuffersWritten;                // no of buffers written to file
+    ULONG LogBuffersLost;                // no of logfile write failures
+    ULONG RealTimeBuffersLost;           // no of rt delivery failures
+    HANDLE LoggerThreadId;               // thread id of Logger
+    ULONG LogFileNameOffset;             // Offset to LogFileName
+    ULONG LoggerNameOffset;              // Offset to LoggerName
+
+    // V2 data
+    union {
+        struct {
+            ULONG VersionNumber : 8;     // Should be set to 2 for this version.
+        } DUMMYSTRUCTNAME;
+        ULONG V2Control;
+    } DUMMYUNIONNAME2;
+    ULONG FilterDescCount;               // Number of filters
+    PEVENT_FILTER_DESCRIPTOR FilterDesc; // Only applicable for Private Loggers
+    union {
+        struct {
+            ULONG Wow : 1; // Logger was started by a WOW64 process (output only).
+            ULONG QpcDeltaTracking : 1; // QPC delta tracking events are enabled.
+            ULONG LargeMdlPages : 1; // Buffers allocated via large MDL pages.
+            ULONG ExcludeKernelStack : 1; // Exclude kernel stack from stack walk.
+        } DUMMYSTRUCTNAME;
+        ULONG64 V2Options;
+    } DUMMYUNIONNAME3;
+} EVENT_TRACE_PROPERTIES_V2, *PEVENT_TRACE_PROPERTIES_V2;
+*/
+type EventTraceProperties2 struct {
+	Wnode WnodeHeader // https://learn.microsoft.com/en-us/windows/win32/etw/wnode-header
+	// data provided by caller
+	BufferSize      uint32 // buffer size for logging (kbytes)
+	MinimumBuffers  uint32 // minimum to preallocate
+	MaximumBuffers  uint32 // maximum buffers allowed
+	MaximumFileSize uint32 // maximum logfile size (in MBytes)
+	LogFileMode     uint32 // sequential, circular
+	FlushTimer      uint32 // buffer flush timer, in seconds
+	EnableFlags     uint32 // trace enable flags
+	FlushThreshold  int32  // AgeLimit (Not used) or FlushThreshold (Number of buffers to fill before flushing)
+
+	// data returned to caller
+	NumberOfBuffers     uint32         // no of buffers in use
+	FreeBuffers         uint32         // no of buffers free
+	EventsLost          uint32         // event records lost
+	BuffersWritten      uint32         // no of buffers written to file
+	LogBuffersLost      uint32         // no of logfile write failures
+	RealTimeBuffersLost uint32         // no of rt delivery failures
+	LoggerThreadId      syscall.Handle // thread id of Logger
+	LogFileNameOffset   uint32         // Offset to LogFileName
+	LoggerNameOffset    uint32         // Offset to LoggerName
+	// Added on v2:
+	V2Control       uint32                 // VersionNumber ( Should be set to 2 for this version.)
+	FilterDescCount uint32                 // Number of filters
+	FilterDesc      *EventFilterDescriptor // Only applicable for Private Loggers
+	V2Options       uint64                 // (Wow, QpcDeltaTracking, LargeMdlPages, ExcludeKernelStack)
+}
+
+// This is wrapper for the EVENT_TRACE_PROPERTIES2
+// used to handle the LoggerName and LogFileName more easily instead of using pointers/offsets/sizesof.
+//
+// The session name (LoggerName) is limited to 1,024 characters.
+// The session name is case-insensitive.
+//
+// The log file name is limited to 1,024 characters.
+// The log file name must follow the session name in memory.
+//
+// Both names can be set, ETW StartTrace will read it only if the offsets points
+// to these fields.
+//
+// You must copy the log file name to the offset but you do not copy the session name to the offset.
+// The StartTrace/ControlTrace function copies the name for you.
+type EventTraceProperties2Wrapper struct {
+	EventTraceProperties2
+	LoggerName  [128]uint16
+	LogFileName [1024]uint16
+}
+
+// This structure is supported starting with Windows 10 version 1703.
+// When used with earlier versions of Windows,
+// the additional fields (e.g. FilterDesc and V2Options) will be ignored
+func NewEventTracePropertiesV2() (*EventTraceProperties2Wrapper, uint32) {
+	return &EventTraceProperties2Wrapper{}, uint32(unsafe.Sizeof(EventTraceProperties2Wrapper{}))
+}
+
+func (e *EventTraceProperties2Wrapper) Clone() *EventTraceProperties2Wrapper {
+	clone := new(EventTraceProperties2Wrapper)
+	*clone = *e
+	clone.FilterDesc = nil // ignore on copy.
+	return clone
+}
+
+// null terminated unicode string.
+func (e *EventTraceProperties2Wrapper) GetTraceName() *uint16 {
+	return &e.LoggerName[0]
+}
+
+func (e *EventTraceProperties2Wrapper) GetTraceNameOffset() uint32 {
+	return uint32(unsafe.Offsetof(EventTraceProperties2Wrapper{}.LogFileName))
+}
+
+// Deprecated: use SetTraceName instead.
+func (e *EventTraceProperties2Wrapper) SetTraceNameUnsafe(name string) *uint16 {
+	if len(name) >= ((cap(e.LoggerName) / 2) - 1) { // 1 for null terminator
+		panic("LoggerName too long")
+	}
+	if e.Wnode.BufferSize >= e.LoggerNameOffset {
+		loggerName, _ := syscall.UTF16PtrFromString(name)
+		dst := unsafe.Slice((*byte)(unsafe.Pointer(&e.LoggerName[0])), len(name)*2)
+		src := unsafe.Slice((*byte)(unsafe.Pointer(loggerName)), len(name)*2)
+		copy(dst, src)
+		return &e.LoggerName[0]
+	} else {
+		panic("Not enough buffer space for LoggerName")
+	}
+}
+
+// Set the logger name
+// NOTE: [StartTrace] will set it for us if we provide the LogNameOffset.
+//
+// This does NOT update the [EventTraceProperties2Wrapper.Prop.LogNameOffset] field.
+// You have to set it manually.
+func (e *EventTraceProperties2Wrapper) SetTraceName(name string) {
+	loggerName, _ := syscall.UTF16FromString(name)
+	if len(loggerName) > len(e.LoggerName) { // Does it fit in the fixed-size buffer?
+		panic("LoggerName too long for the fixed-size buffer")
+	}
+	copy(e.LoggerName[:], loggerName) // Copy the string into the fixed-size buffer
+}
+
+// null terminated unicode string.
+func (e *EventTraceProperties2Wrapper) GetLogFileName() *uint16 {
+	if e.LogFileNameOffset == 0 || e.LogFileNameOffset >= e.Wnode.BufferSize {
+		return nil
+	}
+	//return &e.LogFileName[0]
+	return (*uint16)(unsafe.Pointer(uintptr(unsafe.Pointer(e)) + uintptr(e.LogFileNameOffset)))
+}
+
+// Deprecated: use SetLogFileName instead.
+func (e *EventTraceProperties2Wrapper) SetLogFileNameUnsafe(fName string) *uint16 {
+	if len(fName) >= ((cap(e.LogFileName) / 2) - 1) { // 1 for null terminator
+		panic("LogFileName too long")
+	}
+	if e.Wnode.BufferSize >= uint32(unsafe.Sizeof(*e))+uint32(len(fName)*2) {
+		logFileName, _ := syscall.UTF16PtrFromString(fName)
+		dst := unsafe.Slice((*byte)(unsafe.Pointer(&e.LogFileName[0])), len(fName)*2)
+		src := unsafe.Slice((*byte)(unsafe.Pointer(logFileName)), len(fName)*2)
+		copy(dst, src)
+		return &e.LogFileName[0]
+	} else {
+		panic("Not enough bugger space for LogFileName")
+	}
+}
+
+// Set the log file name as a unicode string
+// NOTE: [StartTrace] will set it for us if we provide the LogFileNameOffset.
+// Same for ControlTrace when querying.
+//
+// This does NOT update the [EventTraceProperties2Wrapper.Prop.LogFileNameOffset] field.
+// You have to set it manually.
+func (e *EventTraceProperties2Wrapper) SetLogFileName(fName string) {
+	logFileName, _ := syscall.UTF16FromString(fName)
+	if len(logFileName) > len(e.LogFileName) {
+		panic("LogFileName too long for the fixed-size buffer")
+	}
+	copy(e.LogFileName[:], logFileName)
+}
+
+func (e *EventTraceProperties2Wrapper) GetLogFileNameOffset() uint32 {
+	return uint32(unsafe.Offsetof(EventTraceProperties2Wrapper{}.LogFileName))
+}
+
+// V2Control
+func (e *EventTraceProperties2) GetVersionNumber() uint8 {
+	// ( Should be set to 2 for this version.)
+	return uint8(e.V2Control & 0xFF)
+}
+
+// V2Options
+func (e *EventTraceProperties2) GetWow() bool {
+	return (e.V2Options>>0)&1 == 1 // Bit 0
+}
+
+func (e *EventTraceProperties2) GetQpcDeltaTracking() bool {
+	return (e.V2Options>>1)&1 == 1 // Bit 1
+}
+
+func (e *EventTraceProperties2) GetLargeMdlPages() bool {
+	return (e.V2Options>>2)&1 == 1 // Bit 2
+}
+
+func (e *EventTraceProperties2) GetExcludeKernelStack() bool {
+	return (e.V2Options>>3)&1 == 1 // Bit 3
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-enable_trace_parameters
+// v10.0.16299.0 evntrace.h
+/*
+typedef struct _ENABLE_TRACE_PARAMETERS {
+    ULONG                    Version;
+    ULONG                    EnableProperty;
+    ULONG                    ControlFlags;
+    GUID                     SourceId;
+    PEVENT_FILTER_DESCRIPTOR EnableFilterDesc;
+    ULONG                    FilterDescCount;
+} ENABLE_TRACE_PARAMETERS, *PENABLE_TRACE_PARAMETERS;
+*/
+type EnableTraceParameters struct {
+	Version          uint32
+	EnableProperty   uint32
+	ControlFlags     uint32 // Reserved. Set to 0.
+	SourceId         GUID
+	EnableFilterDesc *EventFilterDescriptor
+	FilterDescCount  uint32
+}
+
+// From evntcons.h
+// constants for https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-enable_trace_parameters
+const (
+	EVENT_ENABLE_PROPERTY_SID                       = 0x00000001
+	EVENT_ENABLE_PROPERTY_TS_ID                     = 0x00000002
+	EVENT_ENABLE_PROPERTY_STACK_TRACE               = 0x00000004
+	EVENT_ENABLE_PROPERTY_PSM_KEY                   = 0x00000008
+	EVENT_ENABLE_PROPERTY_IGNORE_KEYWORD_0          = 0x00000010
+	EVENT_ENABLE_PROPERTY_PROVIDER_GROUP            = 0x00000020
+	EVENT_ENABLE_PROPERTY_ENABLE_KEYWORD_0          = 0x00000040
+	EVENT_ENABLE_PROPERTY_PROCESS_START_KEY         = 0x00000080
+	EVENT_ENABLE_PROPERTY_EVENT_KEY                 = 0x00000100
+	EVENT_ENABLE_PROPERTY_EXCLUDE_INPRIVATE         = 0x00000200
+	EVENT_ENABLE_PROPERTY_ENABLE_SILOS              = 0x00000400
+	EVENT_ENABLE_PROPERTY_SOURCE_CONTAINER_TRACKING = 0x00000800
+)
+
+// from evntprov.h
+const (
+	EVENT_FILTER_TYPE_NONE               = 0x00000000
+	EVENT_FILTER_TYPE_SCHEMATIZED        = 0x80000000 // Provider-side.
+	EVENT_FILTER_TYPE_SYSTEM_FLAGS       = 0x80000001 // Internal use only.
+	EVENT_FILTER_TYPE_TRACEHANDLE        = 0x80000002 // Initiate rundown.
+	EVENT_FILTER_TYPE_PID                = 0x80000004 // Process ID.
+	EVENT_FILTER_TYPE_EXECUTABLE_NAME    = 0x80000008 // EXE file name.
+	EVENT_FILTER_TYPE_PACKAGE_ID         = 0x80000010 // Package ID.
+	EVENT_FILTER_TYPE_PACKAGE_APP_ID     = 0x80000020 // Package Relative App Id (PRAID).
+	EVENT_FILTER_TYPE_PAYLOAD            = 0x80000100 // TDH payload filter.
+	EVENT_FILTER_TYPE_EVENT_ID           = 0x80000200 // Event IDs.
+	EVENT_FILTER_TYPE_EVENT_NAME         = 0x80000400 // Event name (TraceLogging only).
+	EVENT_FILTER_TYPE_STACKWALK          = 0x80001000 // Event IDs for stack.
+	EVENT_FILTER_TYPE_STACKWALK_NAME     = 0x80002000 // Event name for stack (TraceLogging only).
+	EVENT_FILTER_TYPE_STACKWALK_LEVEL_KW = 0x80004000 // Filter stack collection by level and keyword.
+	EVENT_FILTER_TYPE_CONTAINER          = 0x80008000 // Filter by Container ID.
+)
+
+const (
+	// The maximum number of EVENT_DATA_DESCRIPTORs that can be used in an event.
+	//  Used with EventWrite, EventWriteTransfer, EventWriteEx.
+	MAX_EVENT_DATA_DESCRIPTORS = 128
+
+	// The maximum data size for many of the filter types. Used with EVENT_FILTER_DESCRIPTOR.
+	MAX_EVENT_FILTER_DATA_SIZE = 1024
+
+	// The maximum data size for an event payload filter.
+	// Used with EVENT_FILTER_DESCRIPTOR of type EVENT_FILTER_TYPE_PAYLOAD.
+	MAX_EVENT_FILTER_PAYLOAD_SIZE = 4096
+
+	// The maximum data size for a name-based filter.
+	// Used with EVENT_FILTER_DESCRIPTOR for name-based filters.
+	MAX_EVENT_FILTER_EVENT_NAME_SIZE = 4096
+
+	// The maximum number of filters that can be provided in a call to EnableTraceEx2.
+	//  Used with ENABLE_TRACE_PARAMETERS.
+	MAX_EVENT_FILTERS_COUNT = 13
+
+	// The maximum number of process IDs in a PID filter.
+	//  Used with EVENT_FILTER_DESCRIPTOR of type EVENT_FILTER_TYPE_PID.
+	MAX_EVENT_FILTER_PID_COUNT = 8
+
+	// The maximum number of event IDs in an event ID or stackwalk filter.
+	//  Used with EVENT_FILTER_DESCRIPTOR of type EVENT_FILTER_TYPE_EVENT_ID or EVENT_FILTER_TYPE_STACKWALK.
+	MAX_EVENT_FILTER_EVENT_ID_COUNT = 64
+)
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntprov/ns-evntprov-event_filter_event_name
+/*
+	typedef struct _EVENT_FILTER_EVENT_NAME {
+	ULONGLONG MatchAnyKeyword;
+	ULONGLONG MatchAllKeyword;
+	UCHAR     Level;
+	BOOLEAN   FilterIn;
+	USHORT    NameCount;
+	UCHAR     Names[ANYSIZE_ARRAY];
+	} EVENT_FILTER_EVENT_NAME, *PEVENT_FILTER_EVENT_NAME;
+*/
+type EventFilterEventName struct {
+	MatchAnyKeyword uint64
+	MatchAllKeyword uint64
+	Level           uint8
+	FilterIn        uint8
+	NameCount       uint16
+	Names           [1]uint8
+}
+
+// AllocEventFilterEventName allocates a buffer for an EVENT_FILTER_EVENT_NAME structure
+// with a flexible array member for the event names.
+func AllocEventFilterEventName(names []string) (f *EventFilterEventName, size int, keepAlive *[]byte) {
+	if len(names) == 0 {
+		return nil, 0, nil
+	}
+
+	// Calculate total size for names: sum of (length + 1 for null terminator)
+	namesSize := 0
+	for _, name := range names {
+		namesSize += len(name) + 1
+	}
+
+	// Header size is 20 bytes (8+8+1+1+2).
+	// The Names array starts at offset 20.
+	totalSize := 20 + namesSize
+	buf := make([]byte, totalSize)
+
+	// Create EventFilterEventName from buffer
+	f = (*EventFilterEventName)(unsafe.Pointer(&buf[0]))
+	f.NameCount = uint16(len(names))
+
+	// Get the names memory as a byte slice.
+	namesData := unsafe.Slice(&f.Names[0], namesSize)
+	offset := 0
+	for _, name := range names {
+		copy(namesData[offset:], name)
+		namesData[offset+len(name)] = 0 // Null terminator
+		offset += len(name) + 1
+	}
+
+	return f, totalSize, &buf // This pointer keeps the slice alive
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntprov/ns-evntprov-event_filter_level_kw
+/*
+typedef struct _EVENT_FILTER_LEVEL_KW {
+  ULONGLONG MatchAnyKeyword;
+  ULONGLONG MatchAllKeyword;
+  UCHAR     Level;
+  BOOLEAN   FilterIn;
+} EVENT_FILTER_LEVEL_KW, *PEVENT_FILTER_LEVEL_KW;
+*/
+type EventFilterLevelKW struct {
+	MatchAnyKeyword uint64
+	MatchAllKeyword uint64
+	Level           uint8
+	FilterIn        uint8
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntprov/ns-evntprov-event_filter_header
+/*
+typedef struct _EVENT_FILTER_HEADER {
+  USHORT    Id;
+  UCHAR     Version;
+  UCHAR     Reserved[5];
+  ULONGLONG InstanceId;
+  ULONG     Size;
+  ULONG     NextOffset;
+} EVENT_FILTER_HEADER, *PEVENT_FILTER_HEADER;
+*/
+type EventFilterHeader struct {
+	Id         uint16
+	Version    uint8
+	Reserved   [5]uint8
+	InstanceId uint64
+	Size       uint32
+	NextOffset uint32
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntprov/ns-evntprov-event_filter_event_id
+/*
+EVENT_FILTER_EVENT_ID is used to pass EventId filter for
+stack walk filters.
+
+	typedef struct _EVENT_FILTER_EVENT_ID {
+	    BOOLEAN FilterIn;
+	    UCHAR Reserved;
+	    USHORT Count;
+	    USHORT Events[ANYSIZE_ARRAY];
+	} EVENT_FILTER_EVENT_ID, *PEVENT_FILTER_EVENT_ID;
+*/
+type EventFilterEventID struct {
+	FilterIn uint8
+	Reserved uint8
+	Count    uint16
+	// it is easier to implement in Go with a fixed array size
+	Events [1]uint16
+}
+
+// AllocEventFilterEventID allocates a buffer for an EVENT_FILTER_EVENT_ID structure
+// with a flexible array member.
+func AllocEventFilterEventID(filter []uint16) (f *EventFilterEventID, keepAlive *[]byte) {
+	count := uint16(len(filter))
+	// The total size is the header (4 bytes: FilterIn, Reserved, Count)
+	// plus the size of the event data (count * 2 bytes).
+	size := 4 + uintptr(count)*unsafe.Sizeof(uint16(0))
+	buf := make([]byte, size)
+
+	// Cast the start of the buffer to our struct pointer.
+	f = (*EventFilterEventID)(unsafe.Pointer(&buf[0]))
+	f.Count = count
+	if count > 0 {
+		eventsSlice := unsafe.Slice(&f.Events[0], count)
+		copy(eventsSlice, filter) // Copy the filter data into the flexible array member.
+	}
+
+	keepAlive = &buf // This pointer keeps the slice alive
+	return
+}
+
+func (e *EventFilterEventID) Size() int {
+	return 4 + int(e.Count)*2
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntprov/ns-evntprov-event_filter_descriptor
+// v10.0.16299.0 evntprov.h
+/*
+// EVENT_FILTER_DESCRIPTOR describes a filter data item for EnableTraceEx2.
+typedef struct _EVENT_FILTER_DESCRIPTOR {
+
+    ULONGLONG   Ptr;  // Pointer to filter data. Set to (ULONGLONG)(ULONG_PTR)pData.
+    ULONG       Size; // Size of filter data in bytes.
+    ULONG       Type; // EVENT_FILTER_TYPE value.
+
+} EVENT_FILTER_DESCRIPTOR, *PEVENT_FILTER_DESCRIPTOR;
+*/
+// sizeof: 0x10 (OK)
+type EventFilterDescriptor struct {
+	Ptr  uint64 // Pointer to filter data. Set to (ULONGLONG)(ULONG_PTR)pData.
+	Size uint32 // Size of filter data in bytes.
+	Type uint32 // EVENT_FILTER_TYPE value.
+}
+
+/*
+	typedef struct _FILETIME {
+	  DWORD dwLowDateTime;
+	  DWORD dwHighDateTime;
+	} FILETIME, *PFILETIME, *LPFILETIME;
+*/
+type FileTime struct {
+	dwLowDateTime  uint32
+	dwHighDateTime uint32
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-event_trace_logfilew
+// v10.0.16299.0 /evntrace.h
+/*
+	struct _EVENT_TRACE_LOGFILEW {
+	    LPWSTR                  LogFileName;      // Logfile Name
+	    LPWSTR                  LoggerName;       // LoggerName
+	    LONGLONG                CurrentTime;      // timestamp of last event
+	    ULONG                   BuffersRead;      // buffers read to date
+	    union {
+	        // Mode of the logfile
+	        ULONG               LogFileMode;
+	        // Processing flags used on Vista and above
+	        ULONG               ProcessTraceMode;
+	    } DUMMYUNIONNAME;
+	    EVENT_TRACE             CurrentEvent;     // Current Event from this stream.
+	    TRACE_LOGFILE_HEADER    LogfileHeader;    // logfile header structure
+	    PEVENT_TRACE_BUFFER_CALLBACKW             // callback before each buffer
+	                            BufferCallback;   // is read
+	    //
+	    // following variables are filled for BufferCallback.
+	    //
+	    ULONG                   BufferSize;
+	    ULONG                   Filled;
+	    ULONG                   EventsLost;
+	    //
+	    // following needs to be propagated to each buffer
+	    //
+	    union {
+	        // Callback with EVENT_TRACE
+	        PEVENT_CALLBACK         EventCallback;
+	        // Callback with EVENT_RECORD on Vista and above
+	        PEVENT_RECORD_CALLBACK  EventRecordCallback;
+	    } DUMMYUNIONNAME2;
+
+	    ULONG                   IsKernelTrace;    // TRUE for kernel logfile
+
+	    PVOID                   Context;          // reserved for internal use
+	};
+*/
+// The EVENT_TRACE_LOGFILE structure stores information about a trace data source.
+//
+// The EVENT_TRACE_LOGFILE structure is used when calling OpenTrace.
+// The user provides an EVENT_TRACE_LOGFILE structure with information about the trace data source
+// (either the name of an ETL file or the name of an active real-time logger session),
+// trace processing flags, and the callback functions that will receive trace data.
+// On success, OpenTrace fills in the remaining fields of the structure to return
+// details about the trace data source.
+//
+// When ProcessTrace processes a buffer, it invokes the user-defined BufferCallback with a
+//
+//	EVENT_TRACE_LOGFILE structure to provide information about the event processing session and the buffer.
+type EventTraceLogfile struct {
+	LogFileName   *uint16            // Logfile Name
+	LoggerName    *uint16            // LoggerName
+	CurrentTime   int64              // (on output) timestamp of last event
+	BuffersRead   uint32             // (on output) buffers read to date
+	Union1        uint32             // (LogFileMode [NOT USED?] | ProcessTraceMode)
+	CurrentEvent  EventTrace         // (on output) Current Event from this stream.
+	LogfileHeader TraceLogfileHeader // (on output) logfile header structure
+
+	//BufferCallback *EventTraceBufferCallback
+	BufferCallback uintptr // callback before each buffer is read
+
+	// following variables are filled for BufferCallback.
+
+	BufferSize uint32 // (on output) contains the size of each buffer, in bytes.
+	Filled     uint32 // (on output) contains the number of bytes in the buffer that contain valid information.
+	EventsLost uint32 // NOT USED
+
+	// following needs to be propagated to each buffer
+
+	Callback uintptr // (EventCallback | EventRecordCallback)
+	// Callback with EVENT_TRACE or // Callback with EVENT_RECORD on Vista and above
+
+	IsKernelTrace uint32 // (on output) TRUE for kernel logfile
+
+	Context uintptr // reserved for internal use
+}
+
+func (e *EventTraceLogfile) GetProcessTraceMode() uint32 {
+	return e.Union1
+}
+
+func (e *EventTraceLogfile) GetProcessTraceModeStrings() []string {
+	var modes []string
+	if e.Union1&PROCESS_TRACE_MODE_REAL_TIME != 0 {
+		modes = append(modes, "REAL_TIME")
+	}
+	if e.Union1&PROCESS_TRACE_MODE_EVENT_RECORD != 0 {
+		modes = append(modes, "EVENT_RECORD")
+	}
+	if e.Union1&PROCESS_TRACE_MODE_RAW_TIMESTAMP != 0 {
+		modes = append(modes, "RAW_TIMESTAMP")
+	}
+	return modes
+}
+
+// SetProcessTraceMode sets the ProcessTraceMode field of the EventTraceLogfile struct.
+// Overwrites any existing value.
+func (e *EventTraceLogfile) SetProcessTraceMode(ptm uint32) {
+	e.Union1 = ptm
+}
+
+func (e *EventTraceLogfile) GetLogFileMode() uint32 {
+	return e.Union1
+}
+
+// Clone creates a deep copy of the EventTraceLogfile struct.
+// It allocates new memory for string pointers and copies all fields.
+func (e *EventTraceLogfile) Clone() *EventTraceLogfile {
+	if e == nil {
+		return nil
+	}
+
+	// This correctly copies all members, including nested structs and unions.
+	clone := *e
+
+	// Reset function pointers to zero
+	// These pointers are not valid after the trace session ends.
+	clone.BufferCallback = 0
+	clone.Callback = 0
+	clone.Context = 0
+
+	// Deep copy string pointers
+	clone.LoggerName = CopyUTF16Ptr(e.LoggerName)
+	clone.LogFileName = CopyUTF16Ptr(e.LogFileName)
+
+	// No need to copy LogfileHeader.LoggerName and LogfileHeader.LogFileName
+	// since they are not used according to Microsoft docs
+	// https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-trace_logfile_header
+	clone.LogfileHeader.LoggerName = nil
+	clone.LogfileHeader.LogFileName = nil
+
+	return &clone
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntcons/ns-evntcons-event_record
+// v10.0.19041.0 \evntcons.h
+/*
+typedef struct _EVENT_RECORD {
+
+    EVENT_HEADER        				EventHeader;
+    ETW_BUFFER_CONTEXT  				BufferContext;
+    USHORT              				ExtendedDataCount;
+    USHORT              				UserDataLength;
+    PEVENT_HEADER_EXTENDED_DATA_ITEM 	ExtendedData;
+    PVOID               				UserData;
+    PVOID               				UserContext;
+} EVENT_RECORD, *PEVENT_RECORD;
+*/
+type EventRecord struct {
+	EventHeader       EventHeader                  // Defines information about the event.
+	BufferContext     EtwBufferContext             // Defines information such as the session that logged the event.
+	ExtendedDataCount uint16                       // Number of extended data items in the ExtendedData member.
+	UserDataLength    uint16                       // The size, in bytes, of the data in the UserData member.
+	ExtendedData      *EventHeaderExtendedDataItem // One or more extended data items that ETW collects.
+	UserData          uintptr                      // Event specific data in binary format.
+	UserContext       uintptr                      // Context from OpenTrace
+}
+
+// EventID returns the event ID of the event record.
+// If the event is XML-based (manifest), it returns the EventDescriptor ID.
+// If the event is MOF-based (legacy), it returns the EventDescriptor Opcode(EventType).
+func (e *EventRecord) EventID() uint16 {
+	if !e.IsMof() {
+		// modern xml-based event
+		return e.EventHeader.EventDescriptor.Id
+	} else {
+		// legacy mof-based event
+		return uint16(e.EventHeader.EventDescriptor.Opcode) // EventType
+	}
+}
+
+// EventMofID returns the unique ID of the MOF-based event record.
+// It is calculated as BaseId (ProviderId) + EventDescriptor Opcode.
+// If the event is not MOF-based, it returns the same as EventID().
+func (e *EventRecord) EventMofID() uint16 {
+	if e.IsMof() {
+		if c, ok := MofClassMapping[e.EventHeader.ProviderId.Data1]; ok {
+			return c.BaseId + uint16(e.EventHeader.EventDescriptor.Opcode)
+		} else {
+			return uint16(e.EventHeader.EventDescriptor.Opcode)
+		}
+	} else if e.IsXML() {
+		// For XML-based events, return the EventDescriptor ID.
+		return e.EventHeader.EventDescriptor.Id
+	}
+	// not meaningful, cannot be used to identify event
+	return 0
+}
+
+// GetKernelTimeNs as nanoseconds
+//
+// This is the total CPU time (in nanoseconds) used by the current thread in kernel
+// mode up to the point where this event was logged.
+//
+// To get the time of instructions between events A and B (not elapsed wall clock time),
+// you need to calculate the difference between the two events' kernel times for the same
+// EventRecord.EventHeader.ThreadId
+//
+// Remarks: https://learn.microsoft.com/en-us/windows/win32/api/evntcons/ns-evntcons-event_header
+func (e *EventRecord) GetKernelTimeNs() uint64 {
+	logfile := &e.userContext().trace.startLogFile // inmmutable if trace is running
+	return uint64(e.EventHeader.GetKernelTime()) *
+		uint64(logfile.LogfileHeader.TimerResolution) * 100
+}
+
+// GetuserTimeNs as nanoseconds
+//
+// Read GetKernelTimeNs doc.
+func (e *EventRecord) GetUserTimeNs() uint64 {
+	logfile := &e.userContext().trace.startLogFile // inmmutable if trace is running
+	return uint64(e.EventHeader.GetUserTime()) *
+		uint64(logfile.LogfileHeader.TimerResolution) * 100
+}
+
+// The number of the CPU on which the provider process was running.
+func (e *EventRecord) ProcessorNumber() uint16 {
+	if e.EventHeader.Flags&EVENT_HEADER_FLAG_PROCESSOR_INDEX != 0 {
+		return e.BufferContext.ProcessorIndex()
+	}
+	// If the flag is not set, we use the ProcessorNumber member.
+	return uint16(e.BufferContext.ProcessorNumber())
+}
+
+// ExtendedDataItem returns the extended data item at index i.
+// It returns an error if the index is out of bounds.
+func (e *EventRecord) ExtendedDataItem(i uint16) (*EventHeaderExtendedDataItem, error) {
+	if i >= e.ExtendedDataCount {
+		err := fmt.Errorf("index %d out of bounds (len %d)", i, e.ExtendedDataCount)
+		conlog.SampledErrorWithErrSig("etw", err).Msg("ExtendedDataItem index out of bounds")
+		return nil, err
+	}
+
+	items := unsafe.Slice(e.ExtendedData, e.ExtendedDataCount)
+	return &items[i], nil
+}
+
+// ExtRelatedActivityID returns the GUID of the related activity ID.
+// This is used to correlate events that are part of the same activity.
+// It returns a zero GUID if the related activity ID is not present in the event's extended data.
+// Always available for XML-based events.
+func (e *EventRecord) ExtRelatedActivityID() GUID {
+	for i := uint16(0); i < e.ExtendedDataCount; i++ {
+		item, err := e.ExtendedDataItem(i)
+		if err == nil && item.ExtType == EVENT_HEADER_EXT_TYPE_RELATED_ACTIVITYID {
+			g := (*GUID)(unsafe.Pointer(item.DataPtr))
+			return *g
+		}
+	}
+	return nullGUID
+}
+
+// ExtSid returns the security identifier (SID) of the user who logged the event.
+// It returns nil if the SID is not present in the event's extended data.
+// Use [etw.ConvertSidToStringSidGO] to convert the SID to a go string (it's fast).
+// Enabled by using the EVENT_ENABLE_PROPERTY_SID flag on EnableProvider config.
+func (e *EventRecord) ExtSid() *SID {
+	for i := uint16(0); i < e.ExtendedDataCount; i++ {
+		item, err := e.ExtendedDataItem(i)
+		if err == nil && item.ExtType == EVENT_HEADER_EXT_TYPE_SID {
+			return (*SID)(unsafe.Pointer(item.DataPtr))
+		}
+	}
+	return nil
+}
+
+// ExtTerminalSessionID returns the terminal session identifier of the user who logged the event.
+// The boolean return value indicates whether the session ID was present in the event's extended data.
+// Enabled by using the EVENT_ENABLE_PROPERTY_TS_ID flag on EnableProvider config.
+func (e *EventRecord) ExtTerminalSessionID() (uint32, bool) {
+	for i := uint16(0); i < e.ExtendedDataCount; i++ {
+		item, err := e.ExtendedDataItem(i)
+		if err == nil && item.ExtType == EVENT_HEADER_EXT_TYPE_TS_ID {
+			return *(*uint32)(unsafe.Pointer(item.DataPtr)), true
+		}
+	}
+	return 0, false
+}
+
+// ExtProcessStartKey returns a unique identifier for the process that persists across boot sessions.
+// Returns zero if not present and false if not found.
+//
+// This is more reliable for correlation than a PID, which can be reused.
+// The boolean return value indicates whether the start key was present in the event's extended data.
+// Enabled by using the EVENT_ENABLE_PROPERTY_PROCESS_START_KEY flag on EnableProvider config.
+// Enabled by default for XML-based events.
+//
+// CallingProcessStartKey
+// This field represents a locally unique identifier for the process.
+// It was designed as a more robust version of process ID that is resistant to being repeated.
+// Process start key was introduced in Windows 10 1507 and is derived from
+// _KUSER_SHARED_DATA.BootId and EPROCESS.SequenceNumber, both of which increment and are
+// unlikely to overflow. It is an unsigned 64-bit value that is derived using the following
+// logic: (BootId << 30) | SequenceNumber. Kernel drivers can retrieve the process start key
+// for a process by calling the PsGetProcessStartKey export in ntoskrnl.exe
+func (e *EventRecord) ExtProcessStartKey() (uint64, bool) {
+	for i := uint16(0); i < e.ExtendedDataCount; i++ {
+		item, err := e.ExtendedDataItem(i)
+		if err == nil && item.ExtType == EVENT_HEADER_EXT_TYPE_PROCESS_START_KEY {
+			return *(*uint64)(unsafe.Pointer(item.DataPtr)), true
+		}
+	}
+	return 0, false
+}
+
+// ExtEventKey returns a unique identifier for the event that is constant across trace sessions.
+// This is useful for correlating events from the same provider across different traces.
+// The boolean return value indicates whether the event key was present in the event's extended data.
+// Enabled by using the EVENT_ENABLE_PROPERTY_EVENT_KEY flag on EnableProvider config.
+func (e *EventRecord) ExtEventKey() (uint64, bool) {
+	for i := uint16(0); i < e.ExtendedDataCount; i++ {
+		item, err := e.ExtendedDataItem(i)
+		if err == nil && item.ExtType == EVENT_HEADER_EXT_TYPE_EVENT_KEY {
+			return *(*uint64)(unsafe.Pointer(item.DataPtr)), true
+		}
+	}
+	return 0, false
+}
+
+// ExtContainerID returns the GUID of the container in which the event provider is running.
+// This is useful for tracing events in containerized environments.
+// It returns a zero GUID if the container ID is not present in the event's extended data.
+// Enabled by using the EVENT_HEADER_EXT_TYPE_CONTAINER_ID flag on EnableProvider config.
+func (e *EventRecord) ExtContainerID() GUID {
+	for i := uint16(0); i < e.ExtendedDataCount; i++ {
+		item, err := e.ExtendedDataItem(i)
+		if err == nil && item.ExtType == EVENT_HEADER_EXT_TYPE_CONTAINER_ID {
+			return *(*GUID)(unsafe.Pointer(item.DataPtr))
+		}
+	}
+	return nullGUID
+}
+
+// EventStackTrace contains the call stack trace associated with an event.
+// https://learn.microsoft.com/en-us/windows/win32/api/evntcons/ns-evntcons-event_extended_item_stack_trace64
+type EventStackTrace struct {
+	MatchID   uint64
+	Addresses []uint64
+}
+
+// ExtStackTrace returns the call stack trace associated with an event, if one is present.
+// A stack trace will only be present if the provider was enabled with the
+// EVENT_ENABLE_PROPERTY_STACK_TRACE flag.
+// The boolean return value indicates whether a stack trace was found.
+// Enabled by using the EVENT_ENABLE_PROPERTY_STACK_TRACE flag on EnableProvider config.
+func (e *EventRecord) ExtStackTrace() (EventStackTrace, bool) {
+	for i := uint16(0); i < e.ExtendedDataCount; i++ {
+		item, err := e.ExtendedDataItem(i)
+		if err != nil {
+			continue
+		}
+
+		switch item.ExtType {
+		case EVENT_HEADER_EXT_TYPE_STACK_TRACE32:
+			if item.DataSize < 8 {
+				continue
+			}
+			matchID := *(*uint64)(unsafe.Pointer(item.DataPtr))
+			addressCount := (item.DataSize - 8) / 4
+			addresses32 := unsafe.Slice((*uint32)(unsafe.Pointer(item.DataPtr+8)), addressCount)
+			addresses64 := make([]uint64, addressCount)
+			for j, addr := range addresses32 {
+				addresses64[j] = uint64(addr)
+			}
+			return EventStackTrace{
+				MatchID:   matchID,
+				Addresses: addresses64,
+			}, true
+
+		case EVENT_HEADER_EXT_TYPE_STACK_TRACE64:
+			if item.DataSize < 8 {
+				continue
+			}
+			matchID := *(*uint64)(unsafe.Pointer(item.DataPtr))
+			addressCount := (item.DataSize - 8) / 8
+			addresses64 := unsafe.Slice((*uint64)(unsafe.Pointer(item.DataPtr+8)), addressCount)
+			addrsCopy := make([]uint64, len(addresses64))
+			copy(addrsCopy, addresses64)
+			return EventStackTrace{
+				MatchID:   matchID,
+				Addresses: addrsCopy,
+			}, true
+		}
+	}
+	return EventStackTrace{}, false
+}
+
+// IsXML checks if the event is manifest-based (XML).
+func (e *EventRecord) IsXML() bool {
+	return !e.IsMof()
+}
+
+// IsWpp checks if the event is WPP (Windows Software Trace Preprocessor).
+func (e *EventRecord) IsWPP() bool {
+	// Trace message flag specifically indicates WPP events
+	return e.EventHeader.Flags&EVENT_HEADER_FLAG_TRACE_MESSAGE != 0
+}
+
+// IsMof checks if the event is classic (MOF).
+func (e *EventRecord) IsMof() bool {
+	return e.EventHeader.Flags&EVENT_HEADER_FLAG_CLASSIC_HEADER != 0
+}
+
+// Timestamp returns the timestamp of the event as a time.Time from FILETIME.
+//
+// This converts the original timestamp clocktype to FILETIME using the current trace session data
+// if raw PROCESS_TRACE_MODE_RAW_TIMESTAMP is set. (QPC, SystemTime or CPUClocks)
+//
+// If the raw timestamp flag is not set, it just uses the FILETIME returned by etw in time.Time format.
+func (e *EventRecord) Timestamp() time.Time {
+	return e.TimestampFromProp(e.EventHeader.TimeStamp)
+}
+
+// func (e *EventRecord) timestampDebugTest() time.Time { // TODO: test performance
+// 	usrCtx := e.userContext()
+// 	if usrCtx.trace.processTraceMode&PROCESS_TRACE_MODE_RAW_TIMESTAMP != 0 {
+// 		return e.TimestampFromProp(e.EventHeader.TimeStamp)
+// 	}
+// 	return FromFiletime(e.EventHeader.TimeStamp)
+// }
+
+// TimestampFromProp converts a raw timestamp value from an event property (like WmiTime)
+// into an absolute time.Time, using the session's clock type and conversion settings.
+// This requieres the trace session to be running.
+func (e *EventRecord) TimestampFromProp(propTimestamp int64) time.Time {
+	// userContext() will not be nil if The Consumer is running and processing events.
+	filetime := e.userContext().trace.fromRawTimestamp(propTimestamp)
+	return FromFiletime(filetime)
+}
+
+// TimestampFromPropNanos converts a raw timestamp value from an event property (like WmiTime)
+// into an absolute nanosecond epoch value, using the session's clock type and conversion settings.
+// This requieres the trace session to be running.
+func (e *EventRecord) TimestampFromPropNanos(propTimestamp int64) int64 {
+	// userContext() will not be nil if The Consumer is running and processing events.
+	trace := e.userContext().trace
+	return trace.fromRawTimestampNanos(propTimestamp)
+}
+
+// TimestampNanos converts the event's raw timestamp directly to a nanosecond epoch value.
+// This is a high-performance alternative to `Timestamp().UnixNano()` that avoids creating
+// a `time.Time` object and using floating-point math. It is ideal for calculating
+// durations on the hot path.
+//
+// The conversion uses integer arithmetic.
+func (e *EventRecord) TimestampNanos() int64 {
+	// userContext() will not be nil if The Consumer is running and processing events.
+	trace := e.userContext().trace
+
+	// For raw timestamps, we must convert from the session's clock type.
+	if trace.processTraceMode&PROCESS_TRACE_MODE_RAW_TIMESTAMP != 0 {
+		return trace.fromRawTimestampNanos(e.EventHeader.TimeStamp)
+	} else {
+		// If raw timestamps are not enabled, ETW provides FILETIME directly.
+
+		// FILETIME is 100-nanosecond intervals since 1601.
+		// Convert to nanoseconds and adjust for Unix epoch.
+		return FromFiletimeNanos(e.EventHeader.TimeStamp)
+	}
+}
+
+// TimestampRaw returns the raw timestamp of the event as an int64.
+// This is the original timestamp provided by ETW, without any conversion.
+// The meaning of this timestamp depends on the clock type of the trace session.
+// It could be in QPC ticks, CPU clock ticks, or FILETIME format.
+// Use Timestamp() to get a time.Time with the correct conversion applied.
+func (e *EventRecord) TimestampRaw() int64 {
+	return e.EventHeader.TimestampRaw()
+}
+
+// // Used for performance-critical slice length modification.
+// type sliceHeader struct {
+// 	Data uintptr
+// 	Len  int
+// 	Cap  int
+// }
+
+// GetEventInformation retrieves the event schema information for the given event record.
+// It uses a provided buffer to store the information, resizing it if necessary.
+func (e *EventRecord) GetEventInformation(buffer *[]byte) (tei *TraceEventInfo, err error) {
+	if buffer == nil {
+		var tempBuf []byte
+		return e.GetEventInformation(&tempBuf)
+	}
+	if cap(*buffer) == 0 {
+		// This should not happen with traceStorage, but as a safeguard:
+		*buffer = make([]byte, 8192) // Default initial size
+	}
+
+	// Use the buffer's capacity to inform the C API of the total available memory.
+	bufferSize := uint32(cap(*buffer))
+	tei = (*TraceEventInfo)(unsafe.Pointer(unsafe.SliceData(*buffer)))
+	err = TdhGetEventInformation(e, 0, nil, tei, &bufferSize)
+
+	if err == ERROR_INSUFFICIENT_BUFFER {
+		// The provided buffer was too small. Allocate a new one of the required size.
+		*buffer = make([]byte, bufferSize)
+		tei = (*TraceEventInfo)(unsafe.Pointer(unsafe.SliceData(*buffer)))
+		err = TdhGetEventInformation(e, 0, nil, tei, &bufferSize)
+	}
+	if err != nil {
+		if err == ERROR_NOT_FOUND {
+			return nil, fmt.Errorf("the schema for the event was not found. %w", err)
+		}
+		return nil, fmt.Errorf("TdhGetEventInformation failed: %w", err)
+	}
+
+	// On success, update the slice's length to match the actual data written by the API.
+	// This isn't strictly necessary, as we work with the pointer and capacity, but it's good practice.
+	*buffer = (*buffer)[:bufferSize]
+
+	return tei, nil
+}
+
+/*
+// Both MOF-based events and manifest-based events can specify name/value maps. The
+// map values can be integer values or bit values. If the property specifies a value
+// map, get the map.
+
+DWORD GetMapInfo(PEVENT_RECORD pEvent, LPWSTR pMapName, DWORD DecodingSource, PEVENT_MAP_INFO & pMapInfo)
+{
+    DWORD status = ERROR_SUCCESS;
+    DWORD MapSize = 0;
+
+    // Retrieve the required buffer size for the map info.
+
+    status = TdhGetEventMapInformation(pEvent, pMapName, pMapInfo, &MapSize);
+
+    if (ERROR_INSUFFICIENT_BUFFER == status)
+    {
+        pMapInfo = (PEVENT_MAP_INFO) malloc(MapSize);
+        if (pMapInfo == NULL)
+        {
+            wprintf(L"Failed to allocate memory for map info (size=%lu).\n", MapSize);
+            status = ERROR_OUTOFMEMORY;
+            goto cleanup;
+        }
+
+        // Retrieve the map info.
+
+        status = TdhGetEventMapInformation(pEvent, pMapName, pMapInfo, &MapSize);
+    }
+
+    if (ERROR_SUCCESS == status)
+    {
+        if (DecodingSourceXMLFile == DecodingSource)
+        {
+            RemoveTrailingSpace(pMapInfo);
+        }
+    }
+    else
+    {
+        if  (ERROR_NOT_FOUND == status)
+        {
+            status = ERROR_SUCCESS; // This case is okay.
+        }
+        else
+        {
+            wprintf(L"TdhGetEventMapInformation failed with 0x%x.\n", status);
+        }
+    }
+
+cleanup:
+
+    return status;
+}
+*/
+
+var eventMapInfoPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 64)
+		return &b // Store pointer
+	},
+}
+
+type EventMapInfoBuffer struct {
+	pMapInfo *EventMapInfo
+	buff     *[]byte
+}
+
+func (emi EventMapInfoBuffer) Release() {
+	eventMapInfoPool.Put(emi.buff)
+}
+
+func (e *EventRecord) GetMapInfo(pMapName *uint16, decodingSource uint32) (pMapInfoBuff *EventMapInfoBuffer, err error) {
+	// Get buffer from pool (no need to clean it, it will be overwritten)
+	buffPtr := eventMapInfoPool.Get().(*[]byte)
+
+	mapSize := uint32(len(*buffPtr))
+	pMapInfo := (*EventMapInfo)(unsafe.Pointer(&(*buffPtr)[0]))
+	err = TdhGetEventMapInformation(e, pMapName, pMapInfo, &mapSize)
+
+	if err == syscall.ERROR_INSUFFICIENT_BUFFER {
+		// Need larger buffer
+		if mapSize > uint32(len(*buffPtr)) {
+			*buffPtr = make([]byte, mapSize)
+			pMapInfo = (*EventMapInfo)(unsafe.Pointer(&(*buffPtr)[0]))
+			err = TdhGetEventMapInformation(e, pMapName, pMapInfo, &mapSize)
+		}
+	}
+
+	if err == nil {
+		if DecodingSource(decodingSource) == DecodingSourceXMLFile {
+			pMapInfo.RemoveTrailingSpace()
+		}
+	}
+
+	if err == syscall.ERROR_NOT_FOUND {
+		err = nil
+	}
+	pMapInfoBuff = &EventMapInfoBuffer{
+		pMapInfo: pMapInfo,
+		buff:     buffPtr,
+	}
+	return
+}
+
+func (e *EventRecord) PointerSize() uint32 {
+	if e.EventHeader.Flags&EVENT_HEADER_FLAG_32_BIT_HEADER == EVENT_HEADER_FLAG_32_BIT_HEADER {
+		return 4
+	}
+	return 8
+}
+
+// Get the MOF class GUID
+func (e *EventRecord) MofClassGuid() *GUID {
+	return &e.EventHeader.ProviderId
+}
+
+// Get the MOF event type
+func (e *EventRecord) MofEventType() uint8 {
+	return e.EventHeader.EventDescriptor.Opcode
+}
+
+// Get the MOF class version
+func (e *EventRecord) MofClassVersion() uint8 {
+	return e.EventHeader.EventDescriptor.Version
+}
+
+// GetSIDAt reads a SID structure from the UserData buffer at a specific byte offset.
+//
+//	etw.ConvertSidToStringSidGO(sid) // Use to convert the SID to a go string (it's fast).
+//
+// If hasTokenUser is true, it assumes the SID is preceded by a TOKEN_USER structure,
+// as is common for the 'Sid' MOF extension qualifier. In this case, it first checks
+// a 4-byte presence indicator and then calculates the SID's actual position by
+// skipping the TOKEN_USER structure.
+//
+// If hasTokenUser is false, it assumes the offset points directly to the SID structure.
+//
+// Returns a pointer to the SID within the event's data buffer and nil on success.
+// The returned pointer is only valid for the lifetime of the EventRecord.
+func (e *EventRecord) GetSIDAt(offset uintptr, hasTokenUser bool) (*SID, error) {
+	sidOffset := offset
+
+	if hasTokenUser {
+		// The first 4 bytes indicate presence. Check if we can read them.
+		if offset+4 > uintptr(e.UserDataLength) {
+			return nil, fmt.Errorf("offset %d is out of bounds for UserData length %d to "+
+				"check for SID presence", offset, e.UserDataLength)
+		}
+
+		// Per documentation, if the first 4 bytes are zero, no SID is present.
+		presenceIndicator := *(*uint32)(unsafe.Pointer(e.UserData + offset))
+		if presenceIndicator == 0 {
+			return nil, nil // No SID present, not an error.
+		}
+
+		// The blob contains a TOKEN_USER structure followed by the SID.
+		// The size of TOKEN_USER is effectively two pointers.
+		pointerSize := uintptr(e.PointerSize())
+		tokenUserSize := pointerSize * 2
+
+		// Calculate the start of the SID data by skipping the TOKEN_USER.
+		sidOffset = offset + tokenUserSize
+	}
+
+	// Check if the SID header can fit in the remaining buffer.
+	// A SID header is at least 8 bytes (Revision, SubAuthorityCount, IdentifierAuthority).
+	if sidOffset+8 > uintptr(e.UserDataLength) {
+		return nil, fmt.Errorf("offset %d for SID header is out of bounds for UserData "+
+			"length %d", sidOffset+8, e.UserDataLength)
+	}
+
+	// Get a pointer to the SID structure.
+	sid := (*SID)(unsafe.Pointer(e.UserData + sidOffset))
+
+	// Validate the SID's own reported length.
+	// SeLengthSid(Sid) = (8 + (4 * Sid->SubAuthorityCount))
+	if sid.SubAuthorityCount > 15 { // SID_MAX_SUB_AUTHORITIES
+		return nil, fmt.Errorf("invalid SID at offset %d: SubAuthorityCount %d exceeds "+
+			"maximum of 15", sidOffset, sid.SubAuthorityCount)
+	}
+	sidLength := 8 + (4 * uintptr(sid.SubAuthorityCount))
+
+	// Final bounds check with the calculated length.
+	if sidOffset+sidLength > uintptr(e.UserDataLength) {
+		return nil, fmt.Errorf("calculated SID length %d at offset %d exceeds UserData "+
+			"length %d", sidLength, sidOffset, e.UserDataLength)
+	}
+
+	return sid, nil
+}
+
+// GetAnsiStringAt reads an ANSI string from the UserData buffer at a specific
+// byte offset. If count is -1, the string is assumed to be null-terminated.
+// Otherwise, it reads exactly 'count' bytes.
+func (e *EventRecord) GetAnsiStringAt(offset uintptr, count int) (string, error) {
+	if offset > uintptr(e.UserDataLength) {
+		return "", fmt.Errorf("offset %d is out of bounds for UserData length %d",
+			offset, e.UserDataLength)
+	}
+	if offset == uintptr(e.UserDataLength) {
+		return "", nil
+	}
+
+	ptr := e.UserData + offset
+	remainingBytes := (e.UserData + uintptr(e.UserDataLength)) - ptr
+	var bytes []byte
+
+	if count < 0 { // Null-terminated
+		allBytes := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), remainingBytes)
+		end := -1
+		for i, b := range allBytes {
+			if b == 0 {
+				end = i
+				break
+			}
+		}
+		if end != -1 {
+			bytes = allBytes[:end]
+		} else {
+			bytes = allBytes
+		}
+	} else { // Counted
+		if uintptr(count) > remainingBytes {
+			return "", fmt.Errorf("requested ansi string length %d at offset %d exceeds remaining UserData length %d", count, offset, remainingBytes)
+		}
+		bytes = unsafe.Slice((*byte)(unsafe.Pointer(ptr)), count)
+	}
+	return string(bytes), nil
+}
+
+// GetUTF16StringAt reads a UTF-16 string from the UserData buffer at a specific
+// byte offset. If count is -1, the string is assumed to be null-terminated.
+// Otherwise, it reads exactly 'count' characters (uint16 values).
+func (e *EventRecord) GetUTF16StringAt(offset uintptr, count int) (string, error) {
+	if offset > uintptr(e.UserDataLength) {
+		return "", fmt.Errorf("offset %d is out of bounds for UserData length %d",
+			offset, e.UserDataLength)
+	}
+	if offset == uintptr(e.UserDataLength) {
+		return "", nil
+	}
+
+	ptr := e.UserData + offset
+	remainingBytes := (e.UserData + uintptr(e.UserDataLength)) - ptr
+	maxChars := remainingBytes / 2
+	if maxChars == 0 {
+		return "", nil
+	}
+
+	var resultSlice []uint16
+	if count < 0 { // Null-terminated
+		allWchars := unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), maxChars)
+		end := -1
+		for i, w := range allWchars {
+			if w == 0 {
+				end = i
+				break
+			}
+		}
+		if end != -1 {
+			resultSlice = allWchars[:end]
+		} else {
+			resultSlice = allWchars
+		}
+	} else { // Counted
+		if uintptr(count) > maxChars {
+			return "", fmt.Errorf("requested utf16 string length %d chars at offset %d exceeds remaining UserData capacity for %d chars", count, offset, maxChars)
+		}
+		resultSlice = unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), count)
+	}
+	return FromUTF16Slice(resultSlice), nil
+}
+
+// GetWmiTime reads a WMI time value from the UserData buffer at a specific byte offset.
+// It performs bounds checking to prevent memory access violations.
+// This is an unsafe, high-performance method for well-known event layouts.
+//
+// goetw automatically converts the wmitime to the correct time format
+// using the current trace ClockType.
+//
+// MOF WmiTime qualifier:
+// if PROCESS_TRACE_MODE_RAW_TIMESTAMP is set, WmiTime property can be in
+// QPC, CPUClock or FILETIME format (depends on Wnode.ClientContext of the session),
+// can be queried from the trace flag EventTraceLogfile.LogfileHeader.ReservedFlags (ClockType).
+// if not set, it is in FILETIME format already.
+//
+// returns the converted WmiTime to go time.Time (is usually but not always UTC).
+func (e *EventRecord) GetWmiTimeAt(offset uintptr) (time.Time, error) {
+	timeRaw, err := e.GetUint64At(offset)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return e.TimestampFromProp(int64(timeRaw)), nil
+}
+
+// GetFiletimeAt reads a FILETIME value from the UserData buffer at a specific byte offset.
+// It performs bounds checking to prevent memory access violations.
+// This is an unsafe, high-performance method for well-known event layouts.
+//
+// Returns filetime as in go format time.Time (is usually but not always UTC).
+func (e *EventRecord) GetFiletimeAsTimeAt(offset uintptr) (time.Time, error) {
+	if filetime, err := e.GetFiletimeAt(offset); err != nil {
+		return time.Time{}, err
+	} else {
+		nanoseconds := filetime.Nanoseconds()
+		return time.Unix(0, nanoseconds), nil
+	}
+}
+
+// GetFiletimeAt reads a FILETIME value from the UserData buffer at a specific byte offset.
+// It performs bounds checking to prevent memory access violations.
+// This is an unsafe, high-performance method for well-known event layouts. (is usually but not always UTC)
+func (e *EventRecord) GetFiletimeAt(offset uintptr) (syscall.Filetime, error) {
+	if offset+8 > uintptr(e.UserDataLength) {
+		return syscall.Filetime{},
+			fmt.Errorf("offset %d is out of bounds for UserData length %d", offset+8, e.UserDataLength)
+	}
+	return *(*syscall.Filetime)(unsafe.Pointer(e.UserData + offset)), nil
+}
+
+// GetUint64At reads a uint64 value from the UserData buffer at a specific byte offset.
+// It performs bounds checking to prevent memory access violations.
+// This is an unsafe, high-performance method for well-known event layouts.
+func (e *EventRecord) GetUint64At(offset uintptr) (uint64, error) {
+	if offset+8 > uintptr(e.UserDataLength) {
+		return 0, fmt.Errorf("offset %d is out of bounds for UserData length %d", offset+8, e.UserDataLength)
+	}
+	return *(*uint64)(unsafe.Pointer(e.UserData + offset)), nil
+}
+
+// GetUint32At reads a uint32 value from the UserData buffer at a specific byte offset.
+// It performs bounds checking to prevent memory access violations.
+// This is an unsafe, high-performance method for well-known event layouts.
+func (e *EventRecord) GetUint32At(offset uintptr) (uint32, error) {
+	if offset+4 > uintptr(e.UserDataLength) {
+		return 0, fmt.Errorf("offset %d is out of bounds for UserData length %d", offset+4, e.UserDataLength)
+	}
+	return *(*uint32)(unsafe.Pointer(e.UserData + offset)), nil
+}
+
+// GetUint16At reads an int16 value from the UserData buffer at a specific byte offset.
+// It performs bounds checking to prevent memory access violations.
+// This is an unsafe, high-performance method for well-known event layouts.
+func (e *EventRecord) GetUint16At(offset uintptr) (uint16, error) {
+	if offset+2 > uintptr(e.UserDataLength) {
+		return 0, fmt.Errorf("offset %d is out of bounds for UserData length %d", offset+2, e.UserDataLength)
+	}
+	return *(*uint16)(unsafe.Pointer(e.UserData + offset)), nil
+}
+
+// GetInt8At reads an int8 value from the UserData buffer at a specific byte offset.
+// It performs bounds checking to prevent memory access violations.
+// This is an unsafe, high-performance method for well-known event layouts.
+func (e *EventRecord) GetUint8At(offset uintptr) (uint8, error) {
+	if offset+1 > uintptr(e.UserDataLength) {
+		return 0, fmt.Errorf("offset %d is out of bounds for UserData length %d", offset+1, e.UserDataLength)
+	}
+	return *(*uint8)(unsafe.Pointer(e.UserData + offset)), nil
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntcons/ns-evntcons-event_header_extended_data_item
+// v10.0.19041.0 /evntcons.h
+/*
+typedef struct _EVENT_HEADER_EXTENDED_DATA_ITEM {
+
+    USHORT      Reserved1;                      // Reserved for internal use
+    USHORT      ExtType;                        // Extended info type
+    struct {
+        USHORT  Linkage             :  1;       // Indicates additional extended
+                                                // data item
+        USHORT  Reserved2           : 15;
+    };
+    USHORT      DataSize;                       // Size of extended info data
+    ULONGLONG   DataPtr;                        // Pointer to extended info data
+
+} EVENT_HEADER_EXTENDED_DATA_ITEM, *PEVENT_HEADER_EXTENDED_DATA_ITEM;
+*/
+type EventHeaderExtendedDataItem struct {
+	Reserved1      uint16  // Reserved for internal use
+	ExtType        uint16  // Extended info type
+	InternalStruct uint16  // InternalStruct & 0x8000 = Indicates additional extended data item, InternalStruct & 0x7FFF = Reserved
+	DataSize       uint16  // Size of extended info data
+	DataPtr        uintptr // Pointer to extended info data
+}
+
+// https://learn.microsoft.com/en-en/windows/win32/api/evntcons/ns-evntcons-event_header
+// v10.0.19041.0 /evntcons.h
+/*
+typedef struct _EVENT_HEADER {
+
+    USHORT              Size;                   // Event Size
+    USHORT              HeaderType;             // Header Type
+    USHORT              Flags;                  // Flags
+    USHORT              EventProperty;          // User given event property
+    ULONG               ThreadId;               // Thread Id
+    ULONG               ProcessId;              // Process Id
+    LARGE_INTEGER       TimeStamp;              // Event Timestamp
+    GUID                ProviderId;             // Provider Id
+    EVENT_DESCRIPTOR    EventDescriptor;        // Event Descriptor
+    union {
+        struct {
+            ULONG       KernelTime;             // Kernel Mode CPU ticks
+            ULONG       UserTime;               // User mode CPU ticks
+        } DUMMYSTRUCTNAME;
+        ULONG64         ProcessorTime;          // Processor Clock
+                                                // for private session events
+    } DUMMYUNIONNAME;
+    GUID                ActivityId;             // Activity Id
+
+} EVENT_HEADER, *PEVENT_HEADER;
+*/
+type EventHeader struct {
+	Size          uint16 // Event Size
+	HeaderType    uint16 // Header Type
+	Flags         uint16 // Flags
+	EventProperty uint16 // User given event property
+	ThreadId      uint32 // Thread Id
+	ProcessId     uint32 // Process Id
+	// if etw.PROCESS_TRACE_MODE_RAW_TIMESTAMP is set
+	// this timestamp clock format is converted to FILETIME
+	// (following microsoft docs) by goetw,
+	// otherwise it is in FILETIME format already.
+	// Use Timestamp() to get in time.Time format.
+	TimeStamp       int64 // FILETIME format
+	ProviderId      GUID  // Provider Id
+	EventDescriptor EventDescriptor
+	ProcessorTime   uint64 // Processor Clock (KernelTime | UserTime)
+	ActivityId      GUID   // Activity Id
+}
+
+// Low-order bytes are listed first in unions
+// Example, Kernel time is listed first in the union, so it is the lower 32 bits.
+
+// GetKernelTime You can use the KernelTime and UserTime members to determine the CPU cost in units
+// for a set of instructions (the values indicate the CPU usage charged to that thread
+// at the time of logging). For example, if Event A and Event B are consecutively
+// logged by the same thread and they have CPU usage numbers 150 and 175, then the
+// activity that was performed by that thread between events A and B cost 25 CPU
+// time units (175 – 150).
+//
+// To get the CPU time in nanoseconds use EventRecord.GetKernelTimeNs() and EventRecord.GetUserTimeNs()
+func (e *EventHeader) GetKernelTime() uint32 {
+	// Extract KernelTime (lower 32 bits)
+	// (Little endian they are stored backwards)
+	return uint32(e.ProcessorTime & 0xFFFFFFFF)
+}
+
+// To get the CPU time in nanoseconds use EventRecord.GetKernelTimeNs() and EventRecord.GetUserTimeNs()
+func (e *EventHeader) GetUserTime() uint32 {
+	// Extract UserTime (higher 32 bits)
+	return uint32(e.ProcessorTime >> 32)
+}
+
+// Timestamp returns the raw timestamp of the event.
+// This timestamp may not be in FILETIME format if etw.PROCESS_TRACE_MODE_RAW_TIMESTAMP is set.
+//
+// To get the FILETIME converted to time.Time, use EventRecord.Timestamp()
+func (e *EventHeader) TimestampRaw() int64 {
+	return e.TimeStamp
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntprov/ns-evntprov-event_descriptor
+// v10.0.19041.0 /evntprov.h
+//
+// Ported comments from source file to go interface
+/*
+typedef struct _EVENT_DESCRIPTOR {
+	USHORT Id;
+  	UCHAR Version;
+  	UCHAR Channel;
+ 	UCHAR Level;
+  	UCHAR Opcode;
+  	USHORT      Task;
+  	ULONGLONG   Keyword;
+  } EVENT_DESCRIPTOR, *PEVENT_DESCRIPTOR;
+*/
+// EVENT_DESCRIPTOR describes and categorizes an event.
+// Note that for TraceLogging events, the Id and Version fields are not
+// meaningful and should be ignored.
+type EventDescriptor struct {
+	/*
+		For manifest-based events, the Provider.Guid + Event.Id + Event.Version
+		should uniquely identify an event. Once a manifest with a particular
+		event Id+Version has been made public, the definition of that event
+		(the types, ordering, and semantics of the fields) should never be
+		changed. If an event needs to be changed, it must be given a new
+		identity (usually by incrementing the Version), and the original event
+		must remain in the manifest (so that older versions of the event can
+		still be decoded with the new manifest). To change an event (e.g. to
+		add/remove a field or to change a field type): duplicate the event in
+		the manifest, then increment the event Version and make changes in the
+		new copy.
+		For manifest-free events (i.e. TraceLogging), Event.Id and
+		Event.Version are not useful and should be ignored. Use Event name,
+		level, keyword, and opcode for event filtering and identification. */
+	Id uint16
+
+	/*
+	   For manifest-based events, the Provider.Guid + Event.Id + Event.Version
+	   should uniquely identify an event. The Id+Version constitute a 24-bit
+	   identifier. Generally, events with the same Id are semantically
+	   related, and the Version is incremented as the event is refined over
+	   time. */
+	Version uint8
+
+	/*
+	   The meaning of the Channel field depends on the event consumer.
+	   This field is most commonly used with events that will be consumed by
+	   the Windows Event Log. Note that Event Log does not listen to all ETW
+	   events, so setting a channel is not enough to make the event appear in
+	   the Event Log. For an ETW event to be routed to Event Log, the
+	   following must be configured:
+	   - The provider and its channels must be defined in a manifest.
+	   - The manifest must be compiled with the mc.exe tool, and the resulting
+	     BIN files must be included into the resources of an EXE or DLL.
+	   - The EXE or DLL containing the BIN data must be installed on the
+	     machine where the provider will run.
+	   - The manifest must be registered (using wevtutil.exe) on the machine
+	     where the provider will run. The manifest registration process must
+	     record the location of the EXE or DLL with the BIN data.
+	   - The channel must be enabled in Event Log configuration.
+	   - The provider must log an event with the channel and keyword set
+	     correctly as defined in the manifest. (Note that the mc.exe code
+	     generator will automatically define an implicit keyword for each
+	     channel, and will automatically add the channel's implicit keyword to
+	     each event that references a channel.) */
+	Channel uint8
+
+	/*
+	   The event level defines the event's severity or importance and is a
+	   primary means for filtering events. Microsoft-defined levels (in
+	   evntrace.h and  winmeta.h) are 1 (critical/fatal), 2 (error),
+	   3 (warning), 4 (information), and 5 (verbose). Levels 6-9 are reserved.
+	   Level 0 means the event is always-on (will not be filtered by level).
+	   For a provider, a lower level means the event is more important. An
+	   event with level 0 will always pass any level-based filtering.
+	   For a consumer, a lower level means the session's filter is more
+	   restrictive. However, setting a session's level to 0 disables level
+	   filtering (i.e. session level 0 is the same as session level 255). */
+	Level uint8
+
+	/*
+	   The event opcode is used to mark events with special semantics that
+	   may be used by event decoders to organize and correlate events.
+	   Globally-recognized opcode values are defined in winmeta.h. A provider
+	   can define its own opcodes. Most events use opcode 0 (information).
+	   The opcodes 1 (start) and 2 (stop) are used to indicate the beginning
+	   and end of an activity as follows:
+	   - Generate a new activity Id (UuidCreate or EventActivityIdControl).
+	   - Write an event with opcode = start, activity ID = (the generated
+	     activity ID), and related activity ID = (the parent activity if any).
+	   - Write any number of informational events with opcode = info, activity
+	     ID = (the generated activity ID).
+	   - Write a stop event with opcode = stop, activity ID = (the generated
+	     activity ID).
+	   Each thread has an implicit activity ID (in thread-local storage) that
+	   will be applied to any event that does not explicitly specify an
+	   activity ID. The implicit activity ID can be accessed using
+	   EventActivityIdControl. It is intended that the thread-local activity
+	   will be used to implement scope-based activities: on entry to a scope
+	   (i.e. at the start of a function), a user will record the existing
+	   value of the implicit activity ID, generate and set a new value, and
+	   write a start event; on exit from the scope, the user will write a stop
+	   event and restore the previous activity ID. Note that there is no enforcement
+	   of this pattern, and an application must be aware that other code may
+	   potentially overwrite the activity ID without restoring it. In
+	   addition, the implicit activity ID does not work well with cross-thread
+	   activities. For these reasons, it may be more appropriate to use
+	   explicit activity IDs (explicitly pass a GUID to EventWriteTransfer)
+	   instead of relying on the implicity activity ID. */
+	Opcode uint8
+
+	/*
+	   The event task code can be used for any purpose as defined by the
+	   provider. The task code 0 is the default, used to indicate that no
+	   special task code has been assigned to the event. The ETW manifest
+	   supports assigning localizable strings for each task code. The task
+	   code might be used to group events into categories, or to simply
+	   associate a task name with each event. */
+	Task uint16
+
+	/*
+	   The event keyword defines membership in various categories and is an
+	   important means for filtering events. The event's keyword is a set of
+	   64 bits indicating the categories to which an event belongs. The
+	   provider manifest may provide definitions for up to 48 keyword values,
+	   each value defining the meaning of a single keyword bit (the upper 16
+	   bits are reserved by Microsoft for special purposes). For example, if
+	   the provider manifest defines keyword 0x0010 as "Networking", and
+	   defines keyword 0x0020 as "Threading", an event with keyword 0x0030
+	   would be in both "Networking" and "Threading" categories, while an
+	   event with keyword 0x0001 would be in neither category. An event with
+	   keyword 0 is treated as uncategorized.
+	   Event consumers can use keyword masks to determine which events should
+	   be included in the log. A session can define a KeywordAny mask and
+	   a KeywordAll mask. An event will pass the session's keyword filtering
+	   if the following expression is true:
+	       event.Keyword == 0 || (
+	       (event.Keyword & session.KeywordAny) != 0 &&
+	       (event.Keyword & session.KeywordAll) == session.KeywordAll).
+	   In other words, uncategorized events (events with no keywords set)
+	   always pass keyword filtering, and categorized events pass if they
+	   match any keywords in KeywordAny and match all keywords in KeywordAll.
+	*/
+	Keyword uint64
+}
+
+// Deprecated: use EventRecord instead.
+// https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-event_trace
+// v10.0.16299.0 /evntrace.h
+//
+// An EVENT_TRACE consists of a fixed header (EVENT_TRACE_HEADER) and
+// optionally a variable portion pointed to by MofData. The datablock
+// layout of the variable portion is unknown to the Logger and must
+// be obtained from WBEM CIMOM database.
+/*
+   typedef struct _EVENT_TRACE {
+       EVENT_TRACE_HEADER      Header;             // Event trace header
+       ULONG                   InstanceId;         // Instance Id of this event
+       ULONG                   ParentInstanceId;   // Parent Instance Id.
+       GUID                    ParentGuid;         // Parent Guid;
+       PVOID                   MofData;            // Pointer to Variable Data
+       ULONG                   MofLength;          // Variable Datablock Length
+       union {
+           ULONG               ClientContext;
+           ETW_BUFFER_CONTEXT  BufferContext;
+       } DUMMYUNIONNAME;
+   } EVENT_TRACE, *PEVENT_TRACE;
+*/
+type EventTrace struct {
+	Header           EventTraceHeader // Event trace header
+	InstanceId       uint32           // Instance Id of this event
+	ParentInstanceId uint32           // Parent Instance Id.
+	ParentGuid       GUID             // Parent Guid;
+	MofData          uintptr          // Pointer to Variable Data
+	MofLength        uint32           // Variable Datablock Length
+	UnionCtx         uint32
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-etw_buffer_context
+// v10.0.16299.0 /evntrace.h
+/*
+typedef struct _ETW_BUFFER_CONTEXT {
+    union {
+        struct {
+            UCHAR ProcessorNumber;
+            UCHAR Alignment;
+        } DUMMYSTRUCTNAME;
+        USHORT ProcessorIndex;
+    } DUMMYUNIONNAME;
+    USHORT  LoggerId;
+} ETW_BUFFER_CONTEXT, *PETW_BUFFER_CONTEXT;
+*/
+// sizeof: 0x4 (OK)
+type EtwBufferContext struct {
+	Union1   uint16 // (ProcessorNumber, Alignment) or ProcessorIndex
+	LoggerId uint16 // Identifier of the session that logged the event.
+}
+
+// ProcessorNumber returns the ProcessorNumber if the EVENT_HEADER_FLAG_PROCESSOR_INDEX flag is not set.
+// The number of the CPU on which the provider process was running. The number is zero on a single processor computer.
+func (e *EtwBufferContext) ProcessorNumber() uint8 {
+	return uint8(e.Union1 & 0x00FF) // Extract the lower 8 bits
+}
+
+// Alignment returns the Alignment between events (always eight).
+// if EVENT_HEADER_FLAG_PROCESSOR_INDEX flag is not set.
+func (e *EtwBufferContext) Alignment() uint8 {
+	return uint8((e.Union1 >> 8) & 0x00FF) // Extract the upper 8 bits
+}
+
+// ProcessorIndex returns the ProcessorIndex if the EVENT_HEADER_FLAG_PROCESSOR_INDEX flag is set.
+func (e *EtwBufferContext) ProcessorIndex() uint16 {
+	return e.Union1 // The full 16-bit value represents ProcessorIndex
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-event_trace_header
+// v10.0.16299.0 /evntrace.h
+// Trace header for all legacy events.
+/*
+typedef struct _EVENT_TRACE_HEADER {        // overlays WNODE_HEADER
+    USHORT          Size;                   // Size of entire record
+    union {
+        USHORT      FieldTypeFlags;         // Indicates valid fields
+        struct {
+            UCHAR   HeaderType;             // Header type - internal use only
+            UCHAR   MarkerFlags;            // Marker - internal use only
+        } DUMMYSTRUCTNAME;
+    } DUMMYUNIONNAME;
+    union {
+        ULONG       Version;
+        struct {
+            UCHAR   Type;                   // event type
+            UCHAR   Level;                  // trace instrumentation level
+            USHORT  Version;                // version of trace record
+        } Class;
+    } DUMMYUNIONNAME2;
+    ULONG           ThreadId;               // Thread Id
+    ULONG           ProcessId;              // Process Id
+    LARGE_INTEGER   TimeStamp;              // time when event happens
+    union {
+        GUID        Guid;                   // Guid that identifies event
+        ULONGLONG   GuidPtr;                // use with WNODE_FLAG_USE_GUID_PTR
+    } DUMMYUNIONNAME3;
+    union {
+        struct {
+            ULONG   KernelTime;             // Kernel Mode CPU ticks
+            ULONG   UserTime;               // User mode CPU ticks
+        } DUMMYSTRUCTNAME;
+        ULONG64     ProcessorTime;          // Processor Clock
+        struct {
+            ULONG   ClientContext;          // Reserved
+            ULONG   Flags;                  // Event Flags
+        } DUMMYSTRUCTNAME2;
+    } DUMMYUNIONNAME4;
+} EVENT_TRACE_HEADER, *PEVENT_TRACE_HEADER;
+*/
+// sizeof: 0x30 (48)
+type EventTraceHeader struct {
+	Size      uint16   // Size of entire record
+	Union1    uint16   // (HeaderType, MarkerFlags)
+	Union2    uint32   // (Type, Level, Version)
+	ThreadId  uint32   // Thread Id
+	ProcessId uint32   // Process Id
+	TimeStamp int64    // time when event happens
+	Union3    [16]byte // (Guid | GuidPtr)
+	Union4    uint64   // (KernelTime, UserTime | ProcessorTime | ClientContext, Flags)
+}
+
+// Low-order bytes are listed first, top to bottom in unions.
+// Example, Kernel time is listed first in the union, so it is the lower 32 bits.
+
+func (e *EventTraceHeader) GetType() uint8 {
+	// Extract Version (lower byte)
+	return uint8(e.Union2 & 0xFF)
+}
+
+func (e *EventTraceHeader) GetLevel() uint8 {
+	// Extract Level (middle byte)
+	return uint8(e.Union2 >> 16)
+}
+
+func (e *EventTraceHeader) GetVersion() uint16 {
+	// Extract Type (upper 2 bytes)
+	return uint16((e.Union2 >> 16) & 0xFFFF)
+}
+
+func (e *EventTraceHeader) GetGuid() GUID {
+	// Extract Guid
+	return *(*GUID)(unsafe.Pointer(&e.Union3))
+}
+
+func (e *EventTraceHeader) GetGuidPtr() *GUID {
+	// Extract GuidPtr
+	return (*GUID)(unsafe.Pointer(&e.Union3))
+}
+
+func (e *EventTraceHeader) GetKernelTime() uint32 {
+	// Extract KernelTime (lower 32 bits)
+	// (Little endian they are stored backwards)
+	return uint32(e.Union4 & 0xFFFFFFFF)
+}
+
+func (e *EventTraceHeader) GetUserTime() uint32 {
+	// Extract UserTime (higher 32 bits)
+	return uint32(e.Union4 >> 32)
+}
+
+func (e *EventTraceHeader) GetProcessorTime() uint64 {
+	// Extract ProcessorTime
+	return e.Union4
+}
+
+func (e *EventTraceHeader) GetClientContext() uint32 {
+	// Extract Flags (lower 32 bits)
+	return uint32(e.Union4 & 0xFFFFFFFF)
+}
+
+func (e *EventTraceHeader) GetFlags() uint32 {
+	// Extract ClientContext (higher 32 bits)
+	return uint32(e.Union4 >> 32)
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/evntrace/ns-evntrace-trace_logfile_header
+// v10.0.19041.0 /evntrace.h
+//
+// This is the header for every logfile. The memory for LoggerName
+// and LogFileName must be contiguous adjacent to this structure
+// Allows both user-mode and kernel-mode to understand the header.
+//
+// TRACE_LOGFILE_HEADER32 and TRACE_LOGFILE_HEADER64 structures
+// are also provided to simplify cross platform decoding of the
+// header event.
+//
+// More info at https://github.com/tpn/winsdk-10/blob/master/Include/10.0.16299.0/shared/evntrace.h
+/*
+typedef struct _TRACE_LOGFILE_HEADER {
+    ULONG           BufferSize;         // Logger buffer size in Kbytes
+    union {
+        ULONG       Version;            // Logger version
+        struct {
+            UCHAR   MajorVersion;
+            UCHAR   MinorVersion;
+            UCHAR   SubVersion;
+            UCHAR   SubMinorVersion;
+        } VersionDetail;
+    } DUMMYUNIONNAME;
+    ULONG           ProviderVersion;    // defaults to NT version
+    ULONG           NumberOfProcessors; // Number of Processors
+    LARGE_INTEGER   EndTime;            // Time when logger stops
+    ULONG           TimerResolution;    // assumes timer is constant!!!
+    ULONG           MaximumFileSize;    // Maximum in Mbytes
+    ULONG           LogFileMode;        // specify logfile mode
+    ULONG           BuffersWritten;     // used to file start of Circular File
+    union {
+        GUID LogInstanceGuid;           // For RealTime Buffer Delivery
+        struct {
+            ULONG   StartBuffers;       // Count of buffers written at start.
+            ULONG   PointerSize;        // Size of pointer type in bits
+            ULONG   EventsLost;         // Events lost during log session
+            ULONG   CpuSpeedInMHz;      // Cpu Speed in MHz
+        } DUMMYSTRUCTNAME;
+    } DUMMYUNIONNAME2;
+#if defined(_WMIKM_)
+    PWCHAR          LoggerName;
+    PWCHAR          LogFileName;
+    RTL_TIME_ZONE_INFORMATION TimeZone;
+#else
+    LPWSTR          LoggerName;
+    LPWSTR          LogFileName;
+    TIME_ZONE_INFORMATION TimeZone;
+#endif
+    LARGE_INTEGER   BootTime;
+    LARGE_INTEGER   PerfFreq;           // Reserved
+    LARGE_INTEGER   StartTime;          // Reserved
+    ULONG           ReservedFlags;      // ClockType
+    ULONG           BuffersLost;
+} TRACE_LOGFILE_HEADER, *PTRACE_LOGFILE_HEADER;
+*/
+type TraceLogfileHeader struct {
+	BufferSize         uint32   // Logger buffer size in Kbytes
+	VersionUnion       uint32   // Logger version
+	ProviderVersion    uint32   // defaults to NT version
+	NumberOfProcessors uint32   // Number of Processors
+	EndTime            int64    // Time when logger stops
+	TimerResolution    uint32   // assumes timer is constant!!!
+	MaximumFileSize    uint32   // Maximum in Mbytes
+	LogFileMode        uint32   // specify logfile mode
+	BuffersWritten     uint32   // used to file start of Circular File
+	Union2             [16]byte // (LogInstanceGuid) | (StartBuffers, PointerSize, EventsLost, CpuSpeedInMHz)
+	LoggerName         *uint16
+	LogFileName        *uint16
+	TimeZone           TimeZoneInformation
+	BootTime           int64
+	PerfFreq           int64  // Reserved
+	StartTime          int64  // Reserved
+	ReservedFlags      uint32 // ClockType
+	BuffersLost        uint32
+}
+
+// Version number of the operating system where the trace was collected.
+// This is a roll-up of the members of VersionDetail.
+// Starting with the low-order bytes, the first two bytes contain MajorVersion,
+// the next two bytes contain MinorVersion, the next two bytes contain SubVersion,
+// and the last two bytes contain SubMinorVersion.
+// NOTE(tekert) (DOC is wrong, UCHAR = 1 byte)
+func (t *TraceLogfileHeader) GetVersion() (major, minor, sub, subMinor uint8) {
+	major = uint8(t.VersionUnion)
+	minor = uint8(t.VersionUnion >> 8)
+	sub = uint8(t.VersionUnion >> 16)
+	subMinor = uint8(t.VersionUnion >> 24)
+	return
+}
+
+// For RealTime Buffer Delivery (Reserved)
+func (t *TraceLogfileHeader) GetLogInstanceGuid() GUID {
+	return *(*GUID)(unsafe.Pointer(&t.Union2))
+}
+
+// Count of buffers written at start (Reserved)
+func (t *TraceLogfileHeader) GetStartBuffers() uint32 {
+	// (offset 0..3).
+	return uint32(t.Union2[0]) |
+		(uint32(t.Union2[1]) << 8) |
+		(uint32(t.Union2[2]) << 16) |
+		(uint32(t.Union2[3]) << 24)
+}
+
+// Size of pointer type in bits
+func (t *TraceLogfileHeader) GetPointerSize() uint32 {
+	// (offset 4..7).
+	return uint32(t.Union2[4]) |
+		(uint32(t.Union2[5]) << 8) |
+		(uint32(t.Union2[6]) << 16) |
+		(uint32(t.Union2[7]) << 24)
+}
+
+// Events losts during log session
+func (t *TraceLogfileHeader) GetEventsLost() uint32 {
+	// The EventsLost field is at offset 8..11 in the union
+	// and is little-endian on Windows
+	return uint32(t.Union2[8]) |
+		(uint32(t.Union2[9]) << 8) |
+		(uint32(t.Union2[10]) << 16) |
+		(uint32(t.Union2[11]) << 24)
+}
+
+// CPU Speed in MHz
+func (t *TraceLogfileHeader) GetCpuSpeedInMHz() uint32 {
+	// (offset 12..15).
+	return uint32(t.Union2[12]) |
+		(uint32(t.Union2[13]) << 8) |
+		(uint32(t.Union2[14]) << 16) |
+		(uint32(t.Union2[15]) << 24)
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/timezoneapi/ns-timezoneapi-time_zone_information
+/*
+typedef struct _TIME_ZONE_INFORMATION {
+  LONG       Bias;
+  WCHAR      StandardName[32];
+  SYSTEMTIME StandardDate;
+  LONG       StandardBias;
+  WCHAR      DaylightName[32];
+  SYSTEMTIME DaylightDate;
+  LONG       DaylightBias;
+} TIME_ZONE_INFORMATION, *PTIME_ZONE_INFORMATION, *LPTIME_ZONE_INFORMATION;
+*/
+type TimeZoneInformation struct {
+	Bias         int32
+	StandardName [32]uint16
+	StandardDate SystemTime
+	StandardBias int32
+	DaylightName [32]uint16
+	DaylightDate SystemTime
+	DaylightBias int32
+}
+
+// https://learn.microsoft.com/en-en/windows/win32/api/minwinbase/ns-minwinbase-systemtime
+/*
+typedef struct _SYSTEMTIME {
+  WORD wYear;
+  WORD wMonth;
+  WORD wDayOfWeek;
+  WORD wDay;
+  WORD wHour;
+  WORD wMinute;
+  WORD wSecond;
+  WORD wMilliseconds;
+} SYSTEMTIME, *PSYSTEMTIME, *LPSYSTEMTIME;
+*/
+// sizeof: 0x10 (OK)
+type SystemTime struct {
+	Year         uint16
+	Month        uint16
+	DayOfWeek    uint16
+	Day          uint16
+	Hour         uint16
+	Minute       uint16
+	Second       uint16
+	Milliseconds uint16
+}
+
+// Helper to convert it to go time.
+func (st *SystemTime) ToTime() time.Time {
+	// Validate year range (1601-30827)
+	if st.Year < 1601 || st.Year > 30827 {
+		return time.Time{}
+	}
+
+	return time.Date(
+		int(st.Year),
+		time.Month(st.Month),
+		int(st.Day),
+		int(st.Hour),
+		int(st.Minute),
+		int(st.Second),
+		int(st.Milliseconds)*1e6, // Convert ms to ns
+		time.UTC,
+	)
+}
+
+const (
+	SDDL_REVISION_1 = 1
+)
+
+type SecurityDescriptorControl uint32
+
+const (
+	SE_OWNER_DEFAULTED       = SecurityDescriptorControl(0x0001)
+	SE_GROUP_DEFAULTED       = SecurityDescriptorControl(0x0002)
+	SE_DACL_PRESENT          = SecurityDescriptorControl(0x0004)
+	SE_DACL_DEFAULTED        = SecurityDescriptorControl(0x0008)
+	SE_SACL_PRESENT          = SecurityDescriptorControl(0x0010)
+	SE_SACL_DEFAULTED        = SecurityDescriptorControl(0x0020)
+	SE_DACL_AUTO_INHERIT_REQ = SecurityDescriptorControl(0x0100)
+	SE_SACL_AUTO_INHERIT_REQ = SecurityDescriptorControl(0x0200)
+	SE_DACL_AUTO_INHERITED   = SecurityDescriptorControl(0x0400)
+	SE_SACL_AUTO_INHERITED   = SecurityDescriptorControl(0x0800)
+	SE_DACL_PROTECTED        = SecurityDescriptorControl(0x1000)
+	SE_SACL_PROTECTED        = SecurityDescriptorControl(0x2000)
+	SE_RM_CONTROL_VALID      = SecurityDescriptorControl(0x4000)
+	SE_SELF_RELATIVE         = SecurityDescriptorControl(0x8000)
+)
+
+type SecurityInformation uint32
+
+const (
+	OWNER_SECURITY_INFORMATION            = SecurityInformation(0x00000001)
+	GROUP_SECURITY_INFORMATION            = SecurityInformation(0x00000002)
+	DACL_SECURITY_INFORMATION             = SecurityInformation(0x00000004)
+	SACL_SECURITY_INFORMATION             = SecurityInformation(0x00000008)
+	LABEL_SECURITY_INFORMATION            = SecurityInformation(0x00000010)
+	ATTRIBUTE_SECURITY_INFORMATION        = SecurityInformation(0x00000020)
+	SCOPE_SECURITY_INFORMATION            = SecurityInformation(0x00000040)
+	BACKUP_SECURITY_INFORMATION           = SecurityInformation(0x00010000)
+	PROTECTED_DACL_SECURITY_INFORMATION   = SecurityInformation(0x80000000)
+	PROTECTED_SACL_SECURITY_INFORMATION   = SecurityInformation(0x40000000)
+	UNPROTECTED_DACL_SECURITY_INFORMATION = SecurityInformation(0x20000000)
+	UNPROTECTED_SACL_SECURITY_INFORMATION = SecurityInformation(0x10000000)
+)
+
+// winnt.h
+/*
+//0x6 bytes (sizeof)
+struct _SID_IDENTIFIER_AUTHORITY
+{
+    UCHAR Value[6];                                                         //0x0
+};
+*/
+
+type SidIdentifierAuthority struct {
+	Value [6]uint8 // Represents the top-level authority of a security identifier (SID).
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-sid
+/*
+//0xc bytes (sizeof)
+struct _SID
+{
+    UCHAR Revision;                                                         //0x0
+    UCHAR SubAuthorityCount;                                                //0x1
+    struct _SID_IDENTIFIER_AUTHORITY IdentifierAuthority;                   //0x2
+    ULONG SubAuthority[1];                                                  //0x8
+};
+*/
+
+type SID struct {
+	Revision            uint8
+	SubAuthorityCount   uint8
+	IdentifierAuthority SidIdentifierAuthority
+	SubAuthority        [1]uint32
+}
+
+// Access SubAuthority array
+func (s *SID) SubAuthorities() []uint32 {
+	if s == nil {
+		return nil
+	}
+	return unsafe.Slice((*uint32)(&s.SubAuthority[0]), s.SubAuthorityCount)
+}
+
+/*
+//0x8 bytes (sizeof)
+struct _ACL
+{
+    UCHAR AclRevision;                                                      //0x0
+    UCHAR Sbz1;                                                             //0x1
+    USHORT AclSize;                                                         //0x2
+    USHORT AceCount;                                                        //0x4
+    USHORT Sbz2;                                                            //0x6
+};
+*/
+
+type ACL struct {
+	AclRevision uint8
+	Sbz1        uint8
+	AclSize     uint16
+	AceCount    uint16
+	Sbz2        uint16
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-security_descriptor
+/*
+typedef struct _SECURITY_DESCRIPTOR {
+  BYTE                        Revision;
+  BYTE                        Sbz1;
+  SECURITY_DESCRIPTOR_CONTROL Control;
+  PSID                        Owner;
+  PSID                        Group;
+  PACL                        Sacl;
+  PACL                        Dacl;
+} SECURITY_DESCRIPTOR, *PISECURITY_DESCRIPTOR;
+*/
+type SecurityDescriptor struct {
+	Revision byte
+	Sbz1     byte
+	Control  SecurityDescriptorControl
+	Owner    *SID
+	Group    *SID
+	Sacl     *ACL
+	Dacl     *ACL
+}
+
+/*
+typedef enum {
+    EventSecuritySetDACL,
+    EventSecuritySetSACL,
+    EventSecurityAddDACL,
+    EventSecurityAddSACL,
+    EventSecurityMax
+  } EVENTSECURITYOPERATION;
+*/
+
+type EventSecurityOperation uint32
+
+const (
+	EventSecuritySetDACL = EventSecurityOperation(0)
+	EventSecuritySetSACL = EventSecurityOperation(1)
+	EventSecurityAddDACL = EventSecurityOperation(2)
+	EventSecurityAddSACL = EventSecurityOperation(3)
+	EventSecurityMax     = EventSecurityOperation(4)
+)
+
+// taken from 10.0.19041.0 /winnt.h
+// https://learn.microsoft.com/en-us/windows/win32/secauthz/privilege-constants
+const (
+	////////////////////////////////////////////////////////////////////////
+	//                                                                    //
+	//               NT Defined Privileges                                //
+	//                                                                    //
+	////////////////////////////////////////////////////////////////////////
+
+	SE_CREATE_TOKEN_NAME                      = "SeCreateTokenPrivilege"
+	SE_ASSIGNPRIMARYTOKEN_NAME                = "SeAssignPrimaryTokenPrivilege"
+	SE_LOCK_MEMORY_NAME                       = "SeLockMemoryPrivilege"
+	SE_INCREASE_QUOTA_NAME                    = "SeIncreaseQuotaPrivilege"
+	SE_UNSOLICITED_INPUT_NAME                 = "SeUnsolicitedInputPrivilege"
+	SE_MACHINE_ACCOUNT_NAME                   = "SeMachineAccountPrivilege"
+	SE_TCB_NAME                               = "SeTcbPrivilege"
+	SE_SECURITY_NAME                          = "SeSecurityPrivilege"
+	SE_TAKE_OWNERSHIP_NAME                    = "SeTakeOwnershipPrivilege"
+	SE_LOAD_DRIVER_NAME                       = "SeLoadDriverPrivilege"
+	SE_SYSTEM_PROFILE_NAME                    = "SeSystemProfilePrivilege"
+	SE_SYSTEMTIME_NAME                        = "SeSystemtimePrivilege"
+	SE_PROF_SINGLE_PROCESS_NAME               = "SeProfileSingleProcessPrivilege"
+	SE_INC_BASE_PRIORITY_NAME                 = "SeIncreaseBasePriorityPrivilege"
+	SE_CREATE_PAGEFILE_NAME                   = "SeCreatePagefilePrivilege"
+	SE_CREATE_PERMANENT_NAME                  = "SeCreatePermanentPrivilege"
+	SE_BACKUP_NAME                            = "SeBackupPrivilege"
+	SE_RESTORE_NAME                           = "SeRestorePrivilege"
+	SE_SHUTDOWN_NAME                          = "SeShutdownPrivilege"
+	SE_DEBUG_NAME                             = "SeDebugPrivilege"
+	SE_AUDIT_NAME                             = "SeAuditPrivilege"
+	SE_SYSTEM_ENVIRONMENT_NAME                = "SeSystemEnvironmentPrivilege"
+	SE_CHANGE_NOTIFY_NAME                     = "SeChangeNotifyPrivilege"
+	SE_REMOTE_SHUTDOWN_NAME                   = "SeRemoteShutdownPrivilege"
+	SE_UNDOCK_NAME                            = "SeUndockPrivilege"
+	SE_SYNC_AGENT_NAME                        = "SeSyncAgentPrivilege"
+	SE_ENABLE_DELEGATION_NAME                 = "SeEnableDelegationPrivilege"
+	SE_MANAGE_VOLUME_NAME                     = "SeManageVolumePrivilege"
+	SE_IMPERSONATE_NAME                       = "SeImpersonatePrivilege"
+	SE_CREATE_GLOBAL_NAME                     = "SeCreateGlobalPrivilege"
+	SE_TRUSTED_CREDMAN_ACCESS_NAME            = "SeTrustedCredManAccessPrivilege"
+	SE_RELABEL_NAME                           = "SeRelabelPrivilege"
+	SE_INC_WORKING_SET_NAME                   = "SeIncreaseWorkingSetPrivilege"
+	SE_TIME_ZONE_NAME                         = "SeTimeZonePrivilege"
+	SE_CREATE_SYMBOLIC_LINK_NAME              = "SeCreateSymbolicLinkPrivilege"
+	SE_DELEGATE_SESSION_USER_IMPERSONATE_NAME = "SeDelegateSessionUserImpersonatePrivilege"
+
+	// Token Specific Access Rights.
+
+	TOKEN_ASSIGN_PRIMARY    = 0x0001
+	TOKEN_DUPLICATE         = 0x0002
+	TOKEN_IMPERSONATE       = 0x0004
+	TOKEN_QUERY             = 0x0008
+	TOKEN_QUERY_SOURCE      = 0x0010
+	TOKEN_ADJUST_PRIVILEGES = 0x0020
+	TOKEN_ADJUST_GROUPS     = 0x0040
+	TOKEN_ADJUST_DEFAULT    = 0x0080
+	TOKEN_ADJUST_SESSIONID  = 0x0100
+
+	// Privilege attributes
+
+	SE_PRIVILEGE_ENABLED_BY_DEFAULT = 0x00000001
+	SE_PRIVILEGE_ENABLED            = 0x00000002
+	SE_PRIVILEGE_REMOVED            = 0x00000004
+	SE_PRIVILEGE_USED_FOR_ACCESS    = 0x80000000
+)
+
+// winnt.h
+// https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-luid
+/*
+typedef struct _LUID {
+  DWORD LowPart;
+  LONG  HighPart;
+} LUID, *PLUID;
+*/
+type LUID struct {
+	LowPart  uint32
+	HighPart int32
+}
+
+// winnt.h
+// https://learn.microsoft.com/es-es/windows/win32/api/winnt/ns-winnt-luid_and_attributes
+/*
+typedef struct _LUID_AND_ATTRIBUTES {
+  LUID  Luid;
+  DWORD Attributes;
+} LUID_AND_ATTRIBUTES, *PLUID_AND_ATTRIBUTES;
+*/
+type LUID_AND_ATTRIBUTES struct {
+	Luid       LUID
+	Attributes uint32
+}
+
+// winnt.h
+// https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-token_privileges
+/*
+typedef struct _TOKEN_PRIVILEGES {
+  DWORD               PrivilegeCount;
+  LUID_AND_ATTRIBUTES Privileges[ANYSIZE_ARRAY];
+} TOKEN_PRIVILEGES, *PTOKEN_PRIVILEGES;
+*/
+type TOKEN_PRIVILEGES struct {
+	PrivilegeCount uint32
+	Privileges     [1]LUID_AND_ATTRIBUTES
+}
+
+// wmistr.h (v10.0.19041.0)
+//
+// used in: https://learn.microsoft.com/en-us/windows/win32/api/evntcons/nf-evntcons-eventaccesscontrol
+//
+// Specific rights for WMI guid objects. These are available from 0x0001 to
+// 0xffff (ie up to 16 rights)
+
+// Permissions for EventAccessControl API
+const (
+	WMIGUID_QUERY                 = 0x0001
+	WMIGUID_SET                   = 0x0002
+	WMIGUID_NOTIFICATION          = 0x0004
+	WMIGUID_READ_DESCRIPTION      = 0x0008
+	WMIGUID_EXECUTE               = 0x0010
+	TRACELOG_CREATE_REALTIME      = 0x0020
+	TRACELOG_CREATE_ONDISK        = 0x0040
+	TRACELOG_GUID_ENABLE          = 0x0080
+	TRACELOG_ACCESS_KERNEL_LOGGER = 0x0100
+	TRACELOG_CREATE_INPROC        = 0x0200 // used pre-Vista
+	TRACELOG_LOG_EVENT            = 0x0200 // used on Vista and greater
+	TRACELOG_ACCESS_REALTIME      = 0x0400
+	TRACELOG_REGISTER_GUIDS       = 0x0800
+	TRACELOG_JOIN_GROUP           = 0x1000
+	TRACELOG_ALL                  = TRACELOG_CREATE_REALTIME |
+		TRACELOG_CREATE_ONDISK |
+		TRACELOG_GUID_ENABLE |
+		TRACELOG_LOG_EVENT |
+		TRACELOG_ACCESS_REALTIME |
+		TRACELOG_REGISTER_GUIDS
+)

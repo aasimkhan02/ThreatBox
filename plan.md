@@ -142,6 +142,6 @@ This plan bridges the **ThreatBox** Go backend (`:8080`) with the **React + Vite
 - [x] **Frontend API**: Build `frontend/src/api/client.js` with fetch wrappers.
 - [x] **Upload Page**: Hook file upload input & submit button to `client.uploadSample()`.
 - [x] **Job Polling / HUD**: Implement status polling and loading indicator during sandbox run.
-- [ ] **Dashboard**: Map dynamic `result_data` JSON to the 10 analysis tabs.
+- [x] **Dashboard**: Map dynamic `result_data` JSON to the 10 analysis tabs.
 - [ ] **History Table**: Fetch and render real records from `GET /api/jobs`.
 - [ ] **Verification**: Test end-to-end flow with sample file upload, processing, and dashboard presentation.

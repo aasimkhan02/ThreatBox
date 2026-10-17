@@ -1,0 +1,51 @@
+--- a/etw/etw_helpers.go
++++ b/etw/etw_helpers.go
+@@ -537,19 +537,37 @@
+ 		return erh, nil // Cache hit, we are done.
+ 	}
+ 
+-	// --- Stage 2: Call TdhGetEventInformation (Cache Miss) ---
+-	erh.TraceInfo, err = er.GetEventInformation(erh.teiBuffer)
+-	if err != nil {
+-		apiErr := fmt.Errorf("%w: %v", ErrGetEventInformation, err)
+-		// Fallback to MOF Generator
+-		if er.IsMof() {
+-			if erh.TraceInfo, err = buildTraceInfoFromMof(er, erh.teiBuffer); err == nil {
+-				err = nil //  MOF generator succeeded. Suppress the original API error.
++	// --- Stage 2: Resolve the schema (Cache Miss) ---
++	//
++	// THREATBOX PATCH: for classic (MOF) kernel events, try the built-in MOF
++	// generator BEFORE calling TdhGetEventInformation. TDH resolves MOF schemas
++	// through WBEM and the call can block for 40+ seconds in a Windows Sandbox
++	// guest, which stalls the whole ProcessTrace thread (and Consumer.Stop()).
++	// If the generator has no definition for this event (class/version not
++	// registered), fall through to the unmodified TDH path below.
++	mofResolved := false
++	if er.IsMof() {
++		if tei, mofErr := buildTraceInfoFromMof(er, erh.teiBuffer); mofErr == nil {
++			erh.TraceInfo = tei
++			err = nil
++			mofResolved = true
++		}
++	}
++
++	if !mofResolved {
++		erh.TraceInfo, err = er.GetEventInformation(erh.teiBuffer)
++		if err != nil {
++			apiErr := fmt.Errorf("%w: %v", ErrGetEventInformation, err)
++			// Fallback to MOF Generator
++			if er.IsMof() {
++				if erh.TraceInfo, err = buildTraceInfoFromMof(er, erh.teiBuffer); err == nil {
++					err = nil //  MOF generator succeeded. Suppress the original API error.
++				} else {
++					err = apiErr // MOF generator also failed; return the original API error.
++				}
+ 			} else {
+-				err = apiErr // MOF generator also failed; return the original API error.
++				err = apiErr // Not a MOF event, no fallback possible.
+ 			}
+-		} else {
+-			err = apiErr // Not a MOF event, no fallback possible.
+ 		}
+ 	}
+ 

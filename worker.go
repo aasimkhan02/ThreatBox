@@ -14,6 +14,12 @@ import (
 	"github.com/aasimkhan02/ThreatBox/internal/storage"
 )
 
+const (
+	jobHeartbeatInterval = 30 * time.Second
+	jobHeartbeatTimeout  = 10 * time.Second
+	staleJobMinutes      = 5
+)
+
 func StartWorker(db *pgxpool.Pool) error {
 	if err := RecoverStaleJobs(db); err != nil {
 		return fmt.Errorf("failed to recover stale jobs: %w", err)
@@ -39,10 +45,59 @@ func StartWorker(db *pgxpool.Pool) error {
 	}
 }
 
-// Retries are disabled during testing.
-// const MaxAttempts = 3
+func keepJobLeaseAlive(
+	ctx context.Context,
+	db *pgxpool.Pool,
+	jobID string,
+) {
+	ticker := time.NewTicker(jobHeartbeatInterval)
+	defer ticker.Stop()
 
-func FailRunningJob(db *pgxpool.Pool, jobID string, cause error) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-ticker.C:
+			touchCtx, cancel := context.WithTimeout(
+				ctx,
+				jobHeartbeatTimeout,
+			)
+
+			tag, err := db.Exec(
+				touchCtx,
+				`UPDATE jobs
+				 SET updated_at = NOW()
+				 WHERE job_id = $1
+				   AND status = 'running'`,
+				jobID,
+			)
+			cancel()
+
+			if err != nil {
+				log.Printf(
+					"Job %s heartbeat failed: %v",
+					jobID,
+					err,
+				)
+				continue
+			}
+
+			if tag.RowsAffected() == 0 {
+				log.Printf(
+					"Job %s heartbeat found no running job row",
+					jobID,
+				)
+			}
+		}
+	}
+}
+
+func FailRunningJob(
+	db *pgxpool.Pool,
+	jobID string,
+	cause error,
+) error {
 	_, err := db.Exec(
 		context.Background(),
 		`UPDATE jobs
@@ -54,17 +109,11 @@ func FailRunningJob(db *pgxpool.Pool, jobID string, cause error) error {
 		cause.Error(),
 		jobID,
 	)
-
 	if err != nil {
 		return fmt.Errorf("failed to mark job as failed: %w", err)
 	}
 
-	log.Printf(
-		"Job %s FAILED: %v",
-		jobID,
-		cause,
-	)
-
+	log.Printf("Job %s FAILED: %v", jobID, cause)
 	return cause
 }
 
@@ -92,14 +141,19 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			log.Println("No pending jobs found")
 			return nil
 		}
-
 		return err
 	}
 
 	log.Printf("Claimed job: %s", jobID)
+
+	heartbeatCtx, stopHeartbeat := context.WithCancel(
+		context.Background(),
+	)
+	defer stopHeartbeat()
+
+	go keepJobLeaseAlive(heartbeatCtx, db, jobID)
 
 	job, err := GetJob(db, jobID)
 	if err != nil {
@@ -146,30 +200,21 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		)
 	}
 
-	// Existing metadata-processing step.
+	// Preserve the existing metadata-processing step.
 	legacyResult, err := ProcessSample(sample, jobID)
 	if err != nil {
-		_ = UpdateAnalysisResultStatus(
-			db,
-			analysisResultID,
-			"failed",
-		)
-
+		_ = UpdateAnalysisResultStatus(db, analysisResultID, "failed")
 		return FailRunningJob(db, jobID, err)
 	}
 
-	// Main analysis pipeline.
 	analysisOutput, err := RunAnalysisForJob(sample, jobID)
 	if err != nil {
-		if analysisErr := UpdateAnalysisResultStatus(
+		if statusErr := UpdateAnalysisResultStatus(
 			db,
 			analysisResultID,
 			"failed",
-		); analysisErr != nil {
-			log.Printf(
-				"Failed to mark analysis result as failed: %v",
-				analysisErr,
-			)
+		); statusErr != nil {
+			log.Printf("Failed to mark analysis result as failed: %v", statusErr)
 		}
 
 		return FailRunningJob(
@@ -181,17 +226,7 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 
 	analysisData, err := json.Marshal(analysisOutput)
 	if err != nil {
-		if analysisErr := UpdateAnalysisResultStatus(
-			db,
-			analysisResultID,
-			"failed",
-		); analysisErr != nil {
-			log.Printf(
-				"Failed to mark analysis result as failed: %v",
-				analysisErr,
-			)
-		}
-
+		_ = UpdateAnalysisResultStatus(db, analysisResultID, "failed")
 		return FailRunningJob(
 			db,
 			jobID,
@@ -204,17 +239,7 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		analysisResultID,
 		analysisData,
 	); err != nil {
-		if analysisErr := UpdateAnalysisResultStatus(
-			db,
-			analysisResultID,
-			"failed",
-		); analysisErr != nil {
-			log.Printf(
-				"Failed to mark analysis result as failed: %v",
-				analysisErr,
-			)
-		}
-
+		_ = UpdateAnalysisResultStatus(db, analysisResultID, "failed")
 		return FailRunningJob(
 			db,
 			jobID,
@@ -222,19 +247,8 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		)
 	}
 
-	// Preserve the existing lightweight result row.
 	if err := CreateResult(db, legacyResult); err != nil {
-		if analysisErr := UpdateAnalysisResultStatus(
-			db,
-			analysisResultID,
-			"failed",
-		); analysisErr != nil {
-			log.Printf(
-				"Failed to mark analysis result as failed: %v",
-				analysisErr,
-			)
-		}
-
+		_ = UpdateAnalysisResultStatus(db, analysisResultID, "failed")
 		return FailRunningJob(
 			db,
 			jobID,
@@ -247,32 +261,37 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 		analysisResultID,
 		"completed",
 	); err != nil {
-		return err
+		return FailRunningJob(
+			db,
+			jobID,
+			fmt.Errorf("failed to complete analysis result: %w", err),
+		)
 	}
 
 	if err := UpdateStatus(db, jobID, "completed"); err != nil {
-		return err
+		return FailRunningJob(
+			db,
+			jobID,
+			fmt.Errorf("failed to complete job: %w", err),
+		)
 	}
 
 	log.Printf("Completed job: %s", jobID)
 	log.Printf("Analysis result: %s", analysisResultID)
-
 	return nil
 }
 
 func RecoverStaleJobs(db *pgxpool.Pool) error {
 	result, err := db.Exec(
 		context.Background(),
-		`
-		UPDATE jobs
-		SET status = 'pending',
-		    updated_at = NOW(),
-		    error_message = NULL
-		WHERE status = 'running'
-		  AND updated_at < NOW() - INTERVAL '5 minutes'
-		`,
+		`UPDATE jobs
+		 SET status = 'pending',
+		     updated_at = NOW(),
+		     error_message = NULL
+		 WHERE status = 'running'
+		   AND updated_at < NOW() - ($1 * INTERVAL '1 minute')`,
+		staleJobMinutes,
 	)
-
 	if err != nil {
 		return fmt.Errorf("failed to recover stale jobs: %w", err)
 	}
@@ -280,6 +299,5 @@ func RecoverStaleJobs(db *pgxpool.Pool) error {
 	if result.RowsAffected() > 0 {
 		log.Printf("Recovered %d stale jobs", result.RowsAffected())
 	}
-
 	return nil
 }
