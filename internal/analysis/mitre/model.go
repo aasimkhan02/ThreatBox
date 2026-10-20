@@ -26,4 +26,5 @@ type AnalysisOutput struct {
 	Images      interface{}         `json:"images"`
 	Techniques  []TechniqueMatch    `json:"techniques"`
 	ThreatScore scoring.ThreatScore `json:"threat_score"`
+	Metrics     interface{}         `json:"metrics,omitempty"`
 }

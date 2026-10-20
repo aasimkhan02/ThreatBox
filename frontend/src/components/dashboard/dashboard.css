@@ -129,6 +129,28 @@
   font-weight: 600;
 }
 
+.badge-suspicious-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.85rem;
+  border-radius: 9999px;
+  background-color: #FFF3DD;
+  color: #D97706;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.badge-clean-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.85rem;
+  border-radius: 9999px;
+  background-color: #E2F6ED;
+  color: #16A34A;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
 .sample-sha256 {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.78rem;

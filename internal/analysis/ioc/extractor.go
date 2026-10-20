@@ -1,6 +1,10 @@
 package ioc
 
-import "github.com/aasimkhan02/ThreatBox/internal/analysis"
+import (
+	"sort"
+
+	"github.com/aasimkhan02/ThreatBox/internal/analysis"
+)
 
 type IOCResult struct {
 	Sample    SampleIOC     `json:"sample"`
@@ -169,9 +173,17 @@ func Extract(
 		})
 	}
 
-	for pid, process := range processes {
+	// Iterate in PID order so the process IOCs, and therefore the evidence the
+	// mapper records first for each technique, are identical across runs.
+	pids := make([]uint64, 0, len(processes))
+	for pid := range processes {
+		pids = append(pids, pid)
+	}
+	sort.Slice(pids, func(i, j int) bool { return pids[i] < pids[j] })
 
-		if !relevantPIDs[pid] {
+	for _, pid := range pids {
+		process := processes[pid]
+		if process == nil || !relevantPIDs[pid] {
 			continue
 		}
 

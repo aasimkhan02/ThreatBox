@@ -47,26 +47,64 @@ export function transformAnalysisData(rawJob, fallbackData = {}) {
         hour: '2-digit',
         minute: '2-digit'
       })
-    : (rawJob.submitted || 'Just now')
+    : (rawJob.submitted || 'Not available')
+
+  // Calculate analysis duration from actual start and completion timestamps if present
+  let analysisDuration = 'Not available'
+  const startedAt = rawJob.started_at || res?.started_at || rawJob.rawDetails?.started_at
+  const completedAt = rawJob.completed_at || res?.completed_at || rawJob.rawDetails?.completed_at
+
+  if (startedAt && completedAt) {
+    const start = new Date(startedAt).getTime()
+    const end = new Date(completedAt).getTime()
+    if (!isNaN(start) && !isNaN(end) && end >= start) {
+      const diffSecs = Math.round((end - start) / 1000)
+      if (diffSecs < 60) {
+        analysisDuration = `${diffSecs}s`
+      } else {
+        const mins = Math.floor(diffSecs / 60)
+        const remSecs = diffSecs % 60
+        analysisDuration = `${mins}m ${remSecs}s`
+      }
+    }
+  }
+
+  // Real SHA-256
+  const sha256 = rawJob.sha256 || res?.sample?.sha256 || rawJob.rawDetails?.sha256 || 'Not available'
+
+  // File size
+  const rawSize = rawJob.file_size || res?.sample?.file_size || rawJob.rawDetails?.file_size
+  const fileSize = rawSize ? formatBytes(rawSize) : 'Not available'
+
+  // File type
+  const filename = rawJob.filename || rawJob.fileName || ''
+  let fileType = 'Not available'
+  if (filename) {
+    const lower = filename.toLowerCase()
+    if (lower.endsWith('.dll')) fileType = 'Dynamic Link Library (DLL)'
+    else if (lower.endsWith('.exe')) fileType = 'Executable (EXE)'
+    else if (lower.endsWith('.sys')) fileType = 'System Driver (SYS)'
+    else fileType = 'Binary File'
+  }
 
   return {
     jobId: rawJob.id || rawJob.job_id || 'N/A',
-    fileName: rawJob.filename || rawJob.fileName || 'sample.exe',
+    fileName: filename || 'Unknown sample',
     status: verdict,
     score: score,
     scoreSeverity: threatScoreObj.severity || verdict,
     reasons: reasons,
-    sha256: rawJob.sha256 || res?.sample?.sha256 || 'N/A',
-    fileType: (rawJob.filename || rawJob.fileName || '').toLowerCase().endsWith('.dll') ? 'DLL (Dynamic Link)' : 'PE32+ (Executable)',
-    fileSize: rawJob.file_size ? `${(rawJob.file_size / 1024).toFixed(1)} KB` : '412 KB',
-    analysisTime: '15s - 2m',
+    sha256: sha256,
+    fileType: fileType,
+    fileSize: fileSize,
+    analysisTime: analysisDuration,
     submitted: submittedFormatted,
     environment: 'Windows Sandbox',
     hasRealData: Boolean(res),
 
     // Telemetry Collections
     processes: processes,
-    processCount: processCount || (processes.length ? processes.length : 1),
+    processCount: processCount,
     files: files,
     fileCount: files.length,
     network: network,

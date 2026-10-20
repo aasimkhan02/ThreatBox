@@ -32,20 +32,20 @@ const Dashboard = ({
     }
   }, [sampleData?.id])
 
-  // Transformed sample data with real backend payload or fallback
-  const fallbackSample = {
-    fileName: 'sample_malware.exe',
-    status: 'Malicious',
-    sha256: '37a8e5c6b0d3e9f72ca9d6e1f78b3c4d56e7f906a1b2c3d4e5f6a7b8c9d0e1f2',
-    fileType: 'PE32+ (EXE)',
-    fileSize: '412 KB',
-    analysisTime: '2m 34s',
-    submitted: 'Oct 11, 2026, 14:22',
+  // Default empty sample structure when nothing is passed
+  const defaultEmptySample = {
+    fileName: 'No sample selected',
+    status: 'Clean',
+    sha256: 'Not available',
+    fileType: 'Not available',
+    fileSize: 'Not available',
+    analysisTime: 'Not available',
+    submitted: 'Not available',
     environment: 'Windows Sandbox',
-    score: 92
+    score: 0
   }
 
-  const sample = transformAnalysisData(loadedJob || sampleData?.rawDetails || sampleData, fallbackSample)
+  const sample = transformAnalysisData(loadedJob || sampleData?.rawDetails || sampleData, defaultEmptySample)
 
   const tabs = [
     'Overview',
@@ -75,6 +75,76 @@ const Dashboard = ({
     a.click()
     URL.revokeObjectURL(url)
   }
+
+  // Helper to determine status badge class
+  const getVerdictBadgeClass = (status) => {
+    switch ((status || '').toLowerCase()) {
+      case 'malicious':
+        return 'badge-malicious-pill'
+      case 'suspicious':
+        return 'badge-suspicious-pill'
+      case 'clean':
+        return 'badge-clean-pill'
+      default:
+        return 'badge-clean-pill'
+    }
+  }
+
+  // Render process nodes recursively for real process tree preview
+  const renderProcessTreeNodes = (nodes, level = 0) => {
+    if (!nodes || nodes.length === 0) return null
+
+    return nodes.map((node, idx) => {
+      const pid = node.PID ?? node.pid ?? 0
+      const name = node.Image ? node.Image.split('\\').pop() : (node.image || node.name || 'process.exe')
+      const children = node.Children || node.children || []
+      const indentClass = level > 0 ? `tree-level-${Math.min(level, 4)}` : ''
+
+      // Tag the root sample node or monitored process
+      const isRoot = level === 0
+      const isSuspicious = name.toLowerCase().includes('powershell') || name.toLowerCase().includes('cmd.exe') || name.toLowerCase().includes('rundll32')
+
+      return (
+        <React.Fragment key={`${pid}-${idx}-${level}`}>
+          <div className={`tree-node ${indentClass}`}>
+            <span className="node-caret">{children.length > 0 ? '▼' : '•'}</span>
+            <span className="node-icon">{children.length > 0 ? '📁' : '📄'}</span>
+            <span className="node-name">{name}</span>
+            <span className="node-pid">(PID {pid})</span>
+            {isRoot && sample.status === 'Malicious' && (
+              <span className="node-badge-malicious">Sample Root</span>
+            )}
+            {!isRoot && isSuspicious && (
+              <span className="node-badge-suspicious">Monitored</span>
+            )}
+          </div>
+          {children.length > 0 && renderProcessTreeNodes(children, level + 1)}
+        </React.Fragment>
+      )
+    })
+  }
+
+  // Flatten or array-ify processes for rendering
+  const processList = Array.isArray(sample.processes)
+    ? sample.processes
+    : (sample.processes && typeof sample.processes === 'object' ? Object.values(sample.processes) : [])
+
+  // Filter root processes if processes are a flat map with PPID
+  let rootProcesses = []
+  if (processList.length > 0) {
+    const pidSet = new Set(processList.map((p) => p.PID ?? p.pid))
+    const roots = processList.filter((p) => {
+      const ppid = p.PPID ?? p.ppid
+      return !ppid || !pidSet.has(ppid)
+    })
+    rootProcesses = roots.length > 0 ? roots : processList
+  }
+
+  // MITRE preview items (up to 4)
+  const mitrePreview = Array.isArray(sample.techniques) ? sample.techniques.slice(0, 4) : []
+
+  // Network preview items (up to 4)
+  const networkPreview = Array.isArray(sample.network) ? sample.network.slice(0, 4) : []
 
   return (
     <div className="dashboard-layout">
@@ -253,11 +323,11 @@ const Dashboard = ({
                           strokeWidth="10"
                           strokeLinecap="round"
                         />
-                        {/* Red fill arc */}
+                        {/* Dynamic fill arc */}
                         <path
                           d="M 16 80 A 54 54 0 0 1 124 80"
                           fill="none"
-                          stroke="#FF1744"
+                          stroke={score >= 80 ? '#FF1744' : score >= 40 ? '#FF9100' : '#16A34A'}
                           strokeWidth="10"
                           strokeLinecap="round"
                           strokeDasharray={arcLength}
@@ -275,19 +345,15 @@ const Dashboard = ({
                     <div className="gauge-legend-list">
                       <div className="legend-item">
                         <span className="legend-dot dot-malicious"></span>
-                        <span>Malicious</span>
+                        <span>Malicious (80+)</span>
                       </div>
                       <div className="legend-item">
                         <span className="legend-dot dot-suspicious"></span>
-                        <span>Suspicious</span>
-                      </div>
-                      <div className="legend-item">
-                        <span className="legend-dot dot-lowrisk"></span>
-                        <span>Low Risk</span>
+                        <span>Suspicious (40-79)</span>
                       </div>
                       <div className="legend-item">
                         <span className="legend-dot dot-clean"></span>
-                        <span>Clean</span>
+                        <span>Clean (&lt;40)</span>
                       </div>
                     </div>
                   </div>
@@ -300,49 +366,35 @@ const Dashboard = ({
                   </div>
 
                   <div className="findings-list">
-                    <div className="finding-row">
-                      <div className="finding-left">
-                        <span className="finding-icon-wrap icon-red">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="3" width="18" height="18" rx="2" />
-                            <circle cx="8.5" cy="8.5" r="1.5" />
-                            <polyline points="21 15 16 10 5 21" />
-                          </svg>
-                        </span>
-                        <span className="finding-count">5</span>
+                    {sample.reasons && sample.reasons.length > 0 ? (
+                      sample.reasons.map((reason, idx) => (
+                        <div className="finding-row" key={idx}>
+                          <div className="finding-left">
+                            <span className="finding-icon-wrap icon-red">
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="12" y1="8" x2="12" y2="12" />
+                                <line x1="12" y1="16" x2="12.01" y2="16" />
+                              </svg>
+                            </span>
+                            <span className="finding-label" style={{ fontWeight: 500, color: '#111418' }}>{reason}</span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="finding-row">
+                        <div className="finding-left">
+                          <span className="finding-icon-wrap icon-slate">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                          </span>
+                          <span className="finding-label" style={{ color: '#68707a' }}>No threat penalties assigned</span>
+                        </div>
                       </div>
-                      <span className="finding-label">Malicious indicators</span>
-                    </div>
+                    )}
 
-                    <div className="finding-row">
-                      <div className="finding-left">
-                        <span className="finding-icon-wrap icon-amber">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                            <line x1="12" y1="9" x2="12" y2="13" />
-                            <line x1="12" y1="17" x2="12.01" y2="17" />
-                          </svg>
-                        </span>
-                        <span className="finding-count">3</span>
-                      </div>
-                      <span className="finding-label">Suspicious behaviors</span>
-                    </div>
-
-                    <div className="finding-row">
-                      <div className="finding-left">
-                        <span className="finding-icon-wrap icon-slate">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="12" cy="12" r="10" />
-                            <line x1="12" y1="16" x2="12" y2="12" />
-                            <line x1="12" y1="8" x2="12.01" y2="8" />
-                          </svg>
-                        </span>
-                        <span className="finding-count">2</span>
-                      </div>
-                      <span className="finding-label">Low risk indicators</span>
-                    </div>
-
-                    <div className="finding-row">
+                    <div className="finding-row" style={{ marginTop: '0.25rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(0,0,0,0.06)' }}>
                       <div className="finding-left">
                         <span className="finding-icon-wrap icon-dark">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -350,9 +402,9 @@ const Dashboard = ({
                             <polyline points="14 2 14 8 20 8" />
                           </svg>
                         </span>
-                        <span className="finding-count">12</span>
+                        <span className="finding-count">{sample.techniqueCount}</span>
                       </div>
-                      <span className="finding-label">Total detections</span>
+                      <span className="finding-label">ATT&amp;CK Techniques Detected</span>
                     </div>
                   </div>
                 </div>
@@ -366,31 +418,38 @@ const Dashboard = ({
                   <div className="classification-table">
                     <div className="class-row">
                       <span className="class-label">Family</span>
-                      <span className="class-value">Generic.Malware</span>
+                      <span className="class-value" style={{ color: '#727a85' }}>Not available</span>
                     </div>
 
                     <div className="class-row">
                       <span className="class-label">Type</span>
-                      <span className="class-value">Trojan / Downloader</span>
+                      <span className="class-value">{sample.fileType}</span>
                     </div>
 
                     <div className="class-row">
-                      <span className="class-label">Capabilities</span>
+                      <span className="class-label">Observed Capabilities</span>
                       <div className="capabilities-pill-group">
-                        <span className="cap-badge cap-persistence">Persistence</span>
-                        <span className="cap-badge cap-network">Network</span>
-                        <span className="cap-badge cap-files">File Operations</span>
+                        {sample.registryCount > 0 && <span className="cap-badge cap-persistence">Registry</span>}
+                        {sample.networkCount > 0 && <span className="cap-badge cap-network">Network</span>}
+                        {sample.fileCount > 0 && <span className="cap-badge cap-files">File Ops</span>}
+                        {sample.processCount > 1 && <span className="cap-badge cap-persistence">Process Spawn</span>}
+                        {sample.dnsCount > 0 && <span className="cap-badge cap-network">DNS Queries</span>}
+                        {sample.registryCount === 0 && sample.networkCount === 0 && sample.fileCount === 0 && (
+                          <span style={{ fontSize: '0.8rem', color: '#727a85' }}>None observed</span>
+                        )}
                       </div>
                     </div>
 
                     <div className="class-row">
-                      <span className="class-label">Confidence</span>
-                      <span className="badge-confidence-high">High</span>
+                      <span className="class-label">Severity</span>
+                      <span className={sample.score >= 80 ? 'badge-severity-high' : sample.score >= 40 ? 'badge-severity-medium' : 'badge-confidence-high'}>
+                        {sample.scoreSeverity || sample.status}
+                      </span>
                     </div>
 
                     <div className="class-row">
-                      <span className="class-label">First Seen</span>
-                      <span className="class-value">Oct 11, 2026</span>
+                      <span className="class-label">Analyzed</span>
+                      <span className="class-value">{sample.submitted}</span>
                     </div>
                   </div>
                 </div>
@@ -487,8 +546,12 @@ const Dashboard = ({
                       </div>
                     </div>
 
-                    <button type="button" className="btn-card-viewall">
-                      <span>View All</span>
+                    <button
+                      type="button"
+                      className="btn-card-viewall"
+                      onClick={() => setActiveTab('MITRE ATT&CK')}
+                    >
+                      <span>View All ({sample.techniqueCount})</span>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="5" y1="12" x2="19" y2="12" />
                         <polyline points="12 5 19 12 12 19" />
@@ -497,41 +560,22 @@ const Dashboard = ({
                   </div>
 
                   <div className="mitre-techniques-list">
-                    <div className="mitre-item-row">
-                      <div className="mitre-left-id">
-                        <span className="mitre-side-indicator indicator-red"></span>
-                        <span className="mitre-id-code">T1059.003</span>
-                        <span className="mitre-name-text">Command and Scripting Interpreter</span>
+                    {mitrePreview.length > 0 ? (
+                      mitrePreview.map((item, idx) => (
+                        <div className="mitre-item-row" key={idx}>
+                          <div className="mitre-left-id">
+                            <span className="mitre-side-indicator indicator-red"></span>
+                            <span className="mitre-id-code">{item.technique_id || item.TechniqueID || 'N/A'}</span>
+                            <span className="mitre-name-text">{item.name || item.Name || 'Unclassified Technique'}</span>
+                          </div>
+                          <span className="badge-severity-high">{item.tactic || item.Tactic || 'Detected'}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ padding: '1.5rem', textAlign: 'center', color: '#727a85', fontSize: '0.85rem' }}>
+                        No MITRE ATT&amp;CK techniques matched.
                       </div>
-                      <span className="badge-severity-high">High</span>
-                    </div>
-
-                    <div className="mitre-item-row">
-                      <div className="mitre-left-id">
-                        <span className="mitre-side-indicator indicator-red"></span>
-                        <span className="mitre-id-code">T1547.001</span>
-                        <span className="mitre-name-text">Registry Run Keys / Startup Folder</span>
-                      </div>
-                      <span className="badge-severity-high">High</span>
-                    </div>
-
-                    <div className="mitre-item-row">
-                      <div className="mitre-left-id">
-                        <span className="mitre-side-indicator indicator-blue"></span>
-                        <span className="mitre-id-code">T1071.001</span>
-                        <span className="mitre-name-text">Application Layer Protocol</span>
-                      </div>
-                      <span className="badge-severity-medium">Medium</span>
-                    </div>
-
-                    <div className="mitre-item-row">
-                      <div className="mitre-left-id">
-                        <span className="mitre-side-indicator indicator-orange"></span>
-                        <span className="mitre-id-code">T1562.001</span>
-                        <span className="mitre-name-text">Disable or Modify Tools</span>
-                      </div>
-                      <span className="badge-severity-medium">Medium</span>
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -556,7 +600,11 @@ const Dashboard = ({
                       </div>
                     </div>
 
-                    <button type="button" className="btn-card-viewall">
+                    <button
+                      type="button"
+                      className="btn-card-viewall"
+                      onClick={() => setActiveTab('Processes')}
+                    >
                       <span>View Full Tree</span>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="5" y1="12" x2="19" y2="12" />
@@ -566,46 +614,13 @@ const Dashboard = ({
                   </div>
 
                   <div className="process-tree-body">
-                    {/* Level 0: Root Process */}
-                    <div className="tree-node">
-                      <span className="node-caret">▼</span>
-                      <span className="node-icon">📁</span>
-                      <span className="node-name">sample_malware.exe</span>
-                      <span className="node-pid">(PID 4320)</span>
-                      <span className="node-badge-malicious">Malicious</span>
-                    </div>
-
-                    {/* Level 1: cmd.exe */}
-                    <div className="tree-node tree-level-1">
-                      <span className="node-caret">▼</span>
-                      <span className="node-icon">📁</span>
-                      <span className="node-name">cmd.exe</span>
-                      <span className="node-pid">(PID 5184)</span>
-                    </div>
-
-                    {/* Level 2: powershell.exe */}
-                    <div className="tree-node tree-level-2">
-                      <span className="node-caret">▼</span>
-                      <span className="node-icon">📁</span>
-                      <span className="node-name">powershell.exe</span>
-                      <span className="node-pid">(PID 7260)</span>
-                    </div>
-
-                    {/* Level 3: rundll32.exe */}
-                    <div className="tree-node tree-level-3">
-                      <span className="node-caret">▼</span>
-                      <span className="node-icon">📁</span>
-                      <span className="node-name">rundll32.exe</span>
-                      <span className="node-pid">(PID 8912)</span>
-                      <span className="node-badge-suspicious">Suspicious</span>
-                    </div>
-
-                    {/* Level 4: regsvr32.exe */}
-                    <div className="tree-node tree-level-4">
-                      <span className="node-icon">📄</span>
-                      <span className="node-name">regsvr32.exe</span>
-                      <span className="node-pid">(PID 9012)</span>
-                    </div>
+                    {rootProcesses.length > 0 ? (
+                      renderProcessTreeNodes(rootProcesses)
+                    ) : (
+                      <div style={{ padding: '1.5rem', textAlign: 'center', color: '#727a85', fontSize: '0.85rem' }}>
+                        No process tree telemetry recorded.
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -626,8 +641,12 @@ const Dashboard = ({
                       </div>
                     </div>
 
-                    <button type="button" className="btn-card-viewall">
-                      <span>View All</span>
+                    <button
+                      type="button"
+                      className="btn-card-viewall"
+                      onClick={() => setActiveTab('Network')}
+                    >
+                      <span>View All ({sample.networkCount})</span>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="5" y1="12" x2="19" y2="12" />
                         <polyline points="12 5 19 12 12 19" />
@@ -636,55 +655,34 @@ const Dashboard = ({
                   </div>
 
                   <div className="network-table-card">
-                    <table className="network-activity-table">
-                      <thead>
-                        <tr>
-                          <th>Time</th>
-                          <th>Domain / IP</th>
-                          <th>Port</th>
-                          <th>Protocol</th>
-                          <th>Reputation</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="table-code-text">14:22:18</td>
-                          <td className="table-domain-bold">api.example.com</td>
-                          <td>443</td>
-                          <td>HTTPS</td>
-                          <td>
-                            <span className="badge-net-malicious">Malicious</span>
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="table-code-text">14:22:20</td>
-                          <td className="table-domain-bold">185.199.110.43</td>
-                          <td>80</td>
-                          <td>HTTP</td>
-                          <td>
-                            <span className="badge-net-suspicious">Suspicious</span>
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="table-code-text">14:22:31</td>
-                          <td className="table-domain-bold">cdn.example.net</td>
-                          <td>443</td>
-                          <td>HTTPS</td>
-                          <td>
-                            <span className="badge-net-unknown">Unknown</span>
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="table-code-text">14:22:45</td>
-                          <td className="table-domain-bold">91.213.21.34</td>
-                          <td>53</td>
-                          <td>DNS</td>
-                          <td>
-                            <span className="badge-net-suspicious">Suspicious</span>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+                    {networkPreview.length > 0 ? (
+                      <table className="network-activity-table">
+                        <thead>
+                          <tr>
+                            <th>Type</th>
+                            <th>Destination IP</th>
+                            <th>Port</th>
+                            <th>Protocol</th>
+                            <th>Count</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {networkPreview.map((net, idx) => (
+                            <tr key={idx}>
+                              <td className="table-code-text">{net.Type || net.type || 'Connection'}</td>
+                              <td className="table-domain-bold">{net.DestIP || net.dest_ip || 'N/A'}</td>
+                              <td>{net.DestPort || net.dest_port || 'N/A'}</td>
+                              <td>{net.Protocol || net.protocol || 'TCP'}</td>
+                              <td>{net.Count || net.count || 1}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div style={{ padding: '2rem 1.5rem', textAlign: 'center', color: '#727a85', fontSize: '0.85rem' }}>
+                        No network activity detected during execution.
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

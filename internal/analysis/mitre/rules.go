@@ -9,7 +9,7 @@ import (
 )
 
 func MatchProcessName(name string) string {
-	name = strings.ToLower(strings.TrimSpace(path.Base(strings.ReplaceAll(name, "/", `\`))))
+	name = baseName(name)
 
 	switch name {
 	case "powershell.exe", "pwsh.exe":
@@ -151,7 +151,7 @@ func MatchImagePath(path string) string {
 // patterns for Windows signed-binary proxy execution. Merely running a native
 // utility is not enough to claim the ATT&CK sub-technique.
 func MatchSystemBinaryProxyExecution(process ioc.ProcessIOC) string {
-	name := strings.ToLower(strings.TrimSpace(path.Base(strings.ReplaceAll(process.Name, "/", `\`))))
+	name := baseName(process.Name)
 	command := strings.ToLower(strings.TrimSpace(process.Command))
 
 	switch name {
@@ -192,12 +192,19 @@ func containsWritablePath(command string) bool {
 	command = strings.ToLower(command)
 	return containsAny(
 		command,
-		`\\users\\`,
-		`\\appdata\\`,
-		`\\windows\\temp\\`,
-		`\\temp\\`,
-		`\\programdata\\`,
+		`\users\`,
+		`\appdata\`,
+		`\windows\temp\`,
+		`\temp\`,
+		`\programdata\`,
 	)
+}
+
+// baseName returns the lower-cased final element of a Windows or slash path.
+// The path package only understands "/", so backslashes are converted first.
+func baseName(p string) string {
+	p = strings.ReplaceAll(strings.TrimSpace(p), `\`, "/")
+	return strings.ToLower(strings.TrimSpace(path.Base(p)))
 }
 
 func containsAny(value string, needles ...string) bool {
@@ -327,7 +334,7 @@ func isWritableDLLPath(p string) bool {
 }
 
 func isCommonRuntimeOrInterpreter(process string) bool {
-	name := strings.ToLower(strings.TrimSpace(path.Base(strings.ReplaceAll(process, "/", `\`))))
+	name := baseName(process)
 	switch name {
 	case "powershell.exe", "pwsh.exe", "cmd.exe",
 		"python.exe", "pythonw.exe",

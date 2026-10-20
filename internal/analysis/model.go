@@ -3,6 +3,7 @@ package analysis
 type Event struct {
 	Type       string `json:"type"`
 	Time       string `json:"time"`
+	EventID    uint16 `json:"event_id,omitempty"`
 	PID        uint64 `json:"pid,omitempty"`
 	ThreadID   uint64 `json:"thread_id,omitempty"`
 	PPID       uint64 `json:"ppid,omitempty"`

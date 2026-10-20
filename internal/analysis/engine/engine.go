@@ -13,6 +13,7 @@ import (
 	"github.com/aasimkhan02/ThreatBox/internal/analysis"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/ioc"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/mitre"
+	"github.com/aasimkhan02/ThreatBox/internal/analysis/sandbox"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/scoring"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/stream"
 )
@@ -33,6 +34,8 @@ type telemetry struct {
 	FileNames       map[uint64]string
 	ThreadToProcess map[uint64]uint64
 	LostEvents      uint64
+	ProcessSeq      map[*analysis.ProcessNode]int
+	Root            SampleRootInfo
 }
 
 func addChild(parent, child *analysis.ProcessNode) {
@@ -164,8 +167,12 @@ type FileBehaviorSummary struct {
 	SuppressedRawEvents uint64                  `json:"suppressed_raw_events"`
 	TotalBytesWritten   uint64                  `json:"total_bytes_written"`
 	CategoryCounts      map[fileCategory]int    `json:"category_counts"`
+	CategoryRecords     map[fileCategory]int    `json:"category_record_counts"`
 	NotableFiles        []analysis.FileActivity `json:"notable_files"`
 	Patterns            []string                `json:"patterns"`
+	PathKeying          string                  `json:"path_keying"`
+	CreatedMeaning      string                  `json:"created_meaning"`
+	Accounting          FileEventAccounting     `json:"accounting"`
 }
 
 func classifyFileCategory(path string) fileCategory {
@@ -329,24 +336,41 @@ func buildFileBehaviorSummary(
 		TotalActivities:     len(activities),
 		SuppressedRawEvents: suppressed,
 		CategoryCounts:      make(map[fileCategory]int),
+		CategoryRecords:     make(map[fileCategory]int),
 		NotableFiles:        make([]analysis.FileActivity, 0),
 		Patterns:            make([]string, 0),
+		PathKeying:          pathKeyingDescription,
+		CreatedMeaning:      createdMeaningDescription,
 	}
+
+	// Unique-path sets use a conservative normalized key, so repeated I/O and
+	// case-only spelling differences cannot inflate "distinct path" counts.
+	// Activity rows keep their original paths; only the counting key is folded.
+	createdPaths := make(map[string]struct{})
+	modifiedPaths := make(map[string]struct{})
+	deletedPaths := make(map[string]struct{})
+	renamedPaths := make(map[string]struct{})
+	pathCategories := make(map[string]fileCategory)
 
 	for _, activity := range activities {
 		category := classifyFileCategory(activity.Path)
-		summary.CategoryCounts[category]++
+		summary.CategoryRecords[category]++
+
+		key := pathCountKey(activity.Path)
+		if _, seen := pathCategories[key]; !seen {
+			pathCategories[key] = category
+		}
 
 		switch activity.Action {
 		case "CREATE":
-			summary.Created++
+			createdPaths[key] = struct{}{}
 		case "WRITE":
-			summary.Modified++
+			modifiedPaths[key] = struct{}{}
 			summary.TotalBytesWritten += activity.Bytes
 		case "DELETE":
-			summary.Deleted++
+			deletedPaths[key] = struct{}{}
 		case "RENAME":
-			summary.Renamed++
+			renamedPaths[key] = struct{}{}
 		case "READ":
 			// Counts retained READ records; only notable reads are surfaced
 			// separately below.
@@ -363,6 +387,15 @@ func buildFileBehaviorSummary(
 				summary.NotableReads++
 			}
 		}
+	}
+
+	summary.Created = len(createdPaths)
+	summary.Modified = len(modifiedPaths)
+	summary.Deleted = len(deletedPaths)
+	summary.Renamed = len(renamedPaths)
+
+	for _, category := range pathCategories {
+		summary.CategoryCounts[category]++
 	}
 
 	candidates := make([]analysis.FileActivity, 0)
@@ -411,7 +444,7 @@ func buildFileBehaviorSummary(
 	if summary.Created >= 25 {
 		summary.Patterns = append(
 			summary.Patterns,
-			fmt.Sprintf("Mass file creation: %d distinct paths", summary.Created),
+			fmt.Sprintf("Mass file open/create activity: %d distinct paths", summary.Created),
 		)
 	}
 
@@ -675,6 +708,14 @@ func resolveFilePath(event analysis.Event, names map[uint64]string) string {
 }
 
 func readEvents(path string, expectedSampleNames ...string) (*telemetry, error) {
+	return readEventsWithOptions(path, AnalyzeOptions{}, expectedSampleNames...)
+}
+
+func readEventsWithOptions(
+	path string,
+	opts AnalyzeOptions,
+	expectedSampleNames ...string,
+) (*telemetry, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open telemetry: %w", err)
@@ -683,6 +724,7 @@ func readEvents(path string, expectedSampleNames ...string) (*telemetry, error) 
 
 	t := &telemetry{
 		Processes:       make(map[uint64]*analysis.ProcessNode),
+		ProcessSeq:      make(map[*analysis.ProcessNode]int),
 		FileNames:       make(map[uint64]string),
 		ThreadToProcess: make(map[uint64]uint64),
 	}
@@ -706,6 +748,7 @@ func readEvents(path string, expectedSampleNames ...string) (*telemetry, error) 
 				Time:    event.Time,
 			}
 			t.Processes[event.PID] = node
+			t.ProcessSeq[node] = len(t.ProcessSeq)
 
 		case event.Type == "thread_start" || event.Type == "thread_dc_start":
 			if event.ThreadID != 0 && event.PID != 0 {
@@ -763,22 +806,29 @@ func readEvents(path string, expectedSampleNames ...string) (*telemetry, error) 
 	// command line points into the ThreatBox sample directory, then fall back to
 	// the uploaded name and finally the legacy sample.exe name. This keeps the
 	// analyzer independent of how the sandbox chooses to name the guest copy.
-	t.Sample = findSampleProcess(t.Processes, expectedSampleNames...)
+	t.Sample, t.Root = selectSampleRoot(
+		t.Processes,
+		t.ProcessSeq,
+		opts.SamplePID,
+		expectedSampleNames,
+	)
 
-	// Resolve thread-based attribution only after all thread/process events
-	// have been read, so event ordering cannot make the mapping fail.
+	// Resolve file-event attribution without overwriting a valid ETW PID.
+	// Thread IDs can be reused, so the final ThreadToProcess entry is not
+	// reliable for reconstructing historical file events.
 	for _, event := range t.FileEvents {
-		// Preferred attribution: FileIo TTID -> Thread event -> ProcessId.
-		if event.ThreadID != 0 {
+		// Classic FileIo can report 0xffffffff instead of a usable PID.
+		if event.PID == ^uint64(0) {
+			event.PID = 0
+		}
+
+		// Preserve the original PID when it identifies a process in our
+		// captured process table. Do not replace it with a potentially stale
+		// thread-to-process mapping.
+		if event.PID == 0 && event.ThreadID != 0 {
 			if pid, ok := t.ThreadToProcess[event.ThreadID]; ok {
 				event.PID = pid
 			}
-		}
-
-		// Fallback only when the FileIo header PID is a real process ID.
-		// Classic FileIo commonly reports 0xffffffff, which must not be used.
-		if event.PID == ^uint64(0) {
-			event.PID = 0
 		}
 
 		if event.FileName == "" {
@@ -795,49 +845,8 @@ func readEvents(path string, expectedSampleNames ...string) (*telemetry, error) 
 }
 
 func findSampleProcess(processes map[uint64]*analysis.ProcessNode, expectedSampleNames ...string) *analysis.ProcessNode {
-	normalizedNames := make(map[string]bool)
-	for _, name := range expectedSampleNames {
-		name = strings.TrimSpace(filepath.Base(strings.ReplaceAll(name, "/", `\`)))
-		if name != "" {
-			normalizedNames[strings.ToLower(name)] = true
-		}
-	}
-
-	bestScore := -1
-	var best *analysis.ProcessNode
-
-	for _, process := range processes {
-		imageName := strings.ToLower(strings.TrimSpace(filepath.Base(strings.ReplaceAll(process.Image, "/", `\`))))
-		if imageName == "" {
-			continue
-		}
-
-		score := -1
-		command := strings.ToLower(strings.ReplaceAll(process.Command, "/", `\`))
-
-		// Strongest signal: command line explicitly references the guest sample
-		// mount. This disambiguates uploads named after common Windows binaries.
-		if strings.Contains(command, `\threatbox\sample\`) {
-			score = 100
-		}
-
-		// Next prefer the caller-provided original filename.
-		if normalizedNames[imageName] && score < 80 {
-			score = 80
-		}
-
-		// Legacy sandbox name remains a valid fallback.
-		if imageName == "sample.exe" && score < 60 {
-			score = 60
-		}
-
-		if score > bestScore {
-			bestScore = score
-			best = process
-		}
-	}
-
-	return best
+	root, _ := selectSampleRoot(processes, nil, 0, expectedSampleNames)
+	return root
 }
 
 func buildProcessTree(processes map[uint64]*analysis.ProcessNode, sample *analysis.ProcessNode) []*analysis.ProcessNode {
@@ -999,7 +1008,19 @@ func collectSampleNetworkActivity(
 		if result[i].DestIP != result[j].DestIP {
 			return result[i].DestIP < result[j].DestIP
 		}
-		return result[i].DestPort < result[j].DestPort
+		if result[i].DestPort != result[j].DestPort {
+			return result[i].DestPort < result[j].DestPort
+		}
+		if result[i].PID != result[j].PID {
+			return result[i].PID < result[j].PID
+		}
+		if result[i].Protocol != result[j].Protocol {
+			return result[i].Protocol < result[j].Protocol
+		}
+		if result[i].SourceIP != result[j].SourceIP {
+			return result[i].SourceIP < result[j].SourceIP
+		}
+		return result[i].SourcePort < result[j].SourcePort
 	})
 
 	return result
@@ -1050,7 +1071,10 @@ func collectSampleRegistryActivity(
 		if result[i].Action != result[j].Action {
 			return result[i].Action < result[j].Action
 		}
-		return result[i].Key < result[j].Key
+		if result[i].Key != result[j].Key {
+			return result[i].Key < result[j].Key
+		}
+		return result[i].PID < result[j].PID
 	})
 
 	return result
@@ -1105,7 +1129,10 @@ func collectSampleDNSActivity(
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].QueryName < result[j].QueryName
+		if result[i].QueryName != result[j].QueryName {
+			return result[i].QueryName < result[j].QueryName
+		}
+		return result[i].PID < result[j].PID
 	})
 
 	return result
@@ -1155,7 +1182,10 @@ func collectSampleImageActivity(
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].Path < result[j].Path
+		if result[i].Path != result[j].Path {
+			return result[i].Path < result[j].Path
+		}
+		return result[i].PID < result[j].PID
 	})
 
 	return result
@@ -1248,7 +1278,25 @@ func broadcast(server *stream.Server, event stream.Event) {
 	}
 }
 
+// Analyze analyzes one collector output file. When the guest agent's
+// status.json sits beside the events file, its sample_pid anchors the sample
+// root; otherwise root selection falls back to command-line and name matching.
 func Analyze(path string, streamServer *stream.Server, expectedSampleNames ...string) (mitre.AnalysisOutput, error) {
+	opts := AnalyzeOptions{}
+	if status, err := sandbox.ReadAgentStatus(filepath.Dir(path)); err == nil && status.SamplePID > 0 {
+		opts.SamplePID = uint64(status.SamplePID)
+	}
+
+	return AnalyzeWithOptions(path, streamServer, opts, expectedSampleNames...)
+}
+
+// AnalyzeWithOptions is Analyze with caller-supplied ground truth.
+func AnalyzeWithOptions(
+	path string,
+	streamServer *stream.Server,
+	opts AnalyzeOptions,
+	expectedSampleNames ...string,
+) (mitre.AnalysisOutput, error) {
 
 	broadcast(streamServer, stream.Event{
 		Type: "analysis_started",
@@ -1257,7 +1305,7 @@ func Analyze(path string, streamServer *stream.Server, expectedSampleNames ...st
 		},
 	})
 
-	t, err := readEvents(path, expectedSampleNames...)
+	t, err := readEventsWithOptions(path, opts, expectedSampleNames...)
 	if err != nil {
 		return mitre.AnalysisOutput{}, err
 	}
@@ -1276,10 +1324,18 @@ func Analyze(path string, streamServer *stream.Server, expectedSampleNames ...st
 
 	fileActivities, suppressedFileEvents := collectSampleFileActivity(t.FileEvents, relevantPIDs, t.Processes, t.FileNames)
 	fileSummary := buildFileBehaviorSummary(fileActivities, suppressedFileEvents)
+	fileSummary.Accounting = accountFileEvents(
+		t.FileEvents,
+		relevantPIDs,
+		t.Processes,
+		t.FileNames,
+		suppressedFileEvents,
+	)
 	networkActivities := collectSampleNetworkActivity(t.NetworkEvents, relevantPIDs, t.Processes)
 	registryActivities := collectSampleRegistryActivity(t.RegistryEvents, relevantPIDs, t.Processes)
 	dnsActivities := collectSampleDNSActivity(t.DNSEvents, relevantPIDs, t.Processes)
 	imageActivities := collectSampleImageActivity(t.ImageEvents, relevantPIDs, t.Processes)
+	moduleMetrics := collectModuleMetrics(t.ImageEvents, relevantPIDs, len(imageActivities))
 
 	iocResult := ioc.Extract(ioc.Activities{
 		Files:    fileActivities,
@@ -1331,6 +1387,11 @@ func Analyze(path string, streamServer *stream.Server, expectedSampleNames ...st
 		Images:      iocResult.Images,
 		Techniques:  techniques,
 		ThreatScore: threatScore,
+		Metrics: AnalysisMetrics{
+			SampleRoot: t.Root,
+			Files:      fileSummary.Accounting,
+			Modules:    moduleMetrics,
+		},
 	}
 
 	broadcast(streamServer, stream.Event{
@@ -1342,6 +1403,7 @@ func Analyze(path string, streamServer *stream.Server, expectedSampleNames ...st
 	fmt.Println("========== THREATBOX ANALYSIS ==========")
 	fmt.Printf("Sample   : %s\n", t.Sample.Image)
 	fmt.Printf("PID      : %d\n", t.Sample.PID)
+	fmt.Printf("Root     : %s\n", describeSampleRoot(t.Root))
 	fmt.Printf("Risk     : %s (%d/100)\n", threatScore.Severity, threatScore.Score)
 
 	fmt.Println()
@@ -1361,10 +1423,13 @@ func Analyze(path string, streamServer *stream.Server, expectedSampleNames ...st
 
 	fmt.Println()
 	fmt.Println("FILE BEHAVIOR")
-	fmt.Printf("  • Created: %d distinct paths\n", fileSummary.Created)
+	fmt.Printf("  • Opened or created: %d distinct paths\n", fileSummary.Created)
 	fmt.Printf("  • Modified: %d distinct paths\n", fileSummary.Modified)
 	fmt.Printf("  • Deleted: %d distinct paths\n", fileSummary.Deleted)
 	fmt.Printf("  • Renamed: %d distinct paths\n", fileSummary.Renamed)
+	if line := formatEventCounts(fileSummary.Accounting.RawEventCounts, "file_create/"); line != "" {
+		fmt.Printf("  • file_create events by ID (raw, sample tree): %s\n", line)
+	}
 	if fileSummary.NotableReads > 0 {
 		fmt.Printf("  • Notable reads: %d\n", fileSummary.NotableReads)
 	}
@@ -1407,8 +1472,20 @@ func Analyze(path string, streamServer *stream.Server, expectedSampleNames ...st
 	}
 
 	if suppressedFileEvents > 0 {
-		fmt.Printf("  Background file noise suppressed: %d raw events\n", suppressedFileEvents)
+		fmt.Printf("  Low-value READ events suppressed (sample tree only): %d raw events\n", suppressedFileEvents)
 	}
+
+	accounting := fileSummary.Accounting
+	fmt.Printf(
+		"  Excluded from sample attribution: %d of %d file events "+
+			"(%d from known processes outside the sample tree, "+
+			"%d from PIDs absent from the process table, %d with no PID)\n",
+		accounting.ExcludedKnownProcess+accounting.ExcludedUnknownProcess+accounting.ExcludedNoPID,
+		accounting.TotalFileEvents,
+		accounting.ExcludedKnownProcess,
+		accounting.ExcludedUnknownProcess,
+		accounting.ExcludedNoPID,
+	)
 
 	fmt.Println()
 	fmt.Println("OTHER BEHAVIOR")
@@ -1418,8 +1495,17 @@ func Analyze(path string, streamServer *stream.Server, expectedSampleNames ...st
 	if len(dnsActivities) > 0 {
 		fmt.Printf("  • DNS activity: %d queries\n", len(dnsActivities))
 	}
-	if len(imageActivities) > 0 {
-		fmt.Printf("  • Image/DLL activity: %d modules\n", len(imageActivities))
+	if moduleMetrics.LoadEvents > 0 || moduleMetrics.UnloadEvents > 0 {
+		fmt.Printf(
+			"  • Image events (sample tree): %d loads, %d unloads; "+
+				"%d distinct modules loaded; %d (module, process) pairs\n",
+			moduleMetrics.LoadEvents,
+			moduleMetrics.UnloadEvents,
+			moduleMetrics.DistinctModulesLoaded,
+			moduleMetrics.DistinctModuleProcessPairs,
+		)
+	} else if len(imageActivities) > 0 {
+		fmt.Printf("  • Image/DLL activity: %d (module, process) records\n", len(imageActivities))
 	}
 
 	fmt.Println("SCORE REASONS")
