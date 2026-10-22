@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import './upload.css'
 import Sidebar from '../layout/Sidebar'
-import { uploadSample, getJobDetails, getJobs } from '../../api/client'
+import { uploadSample, getJobDetails, getJobs, IS_DEMO_MODE } from '../../api/client'
 
 const Upload = ({
   onNavigateHome,
@@ -330,6 +330,17 @@ const Upload = ({
                   View Existing Report &rarr;
                 </button>
               )}
+            </div>
+          )}
+
+          {/* Demo Mode Notice */}
+          {IS_DEMO_MODE && (
+            <div className="demo-mode-notice-banner">
+              <span className="demo-notice-icon-badge">⚡</span>
+              <div className="demo-notice-content">
+                <strong>Interactive Demo Mode:</strong> No file is sent to a backend or executed in a live sandbox.
+                Uploaded filenames and sizes are used strictly for client-side display simulation against illustrative behavioral models.
+              </div>
             </div>
           )}
 

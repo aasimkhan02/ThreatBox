@@ -883,3 +883,39 @@
     overflow-x: auto;
   }
 }
+
+/* Demo Mode Notice Banner */
+.demo-mode-notice-banner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(99, 102, 241, 0.06) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 12px;
+  padding: 0.9rem 1.25rem;
+  margin-bottom: 1.5rem;
+  animation: fadeIn 0.3s ease;
+}
+
+.demo-notice-icon-badge {
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.15);
+  flex-shrink: 0;
+}
+
+.demo-notice-content {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #1e3a8a;
+}
+
+.demo-notice-content strong {
+  color: #1d4ed8;
+  font-weight: 600;
+}

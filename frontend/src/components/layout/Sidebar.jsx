@@ -1,5 +1,6 @@
 import React from 'react'
 import './Sidebar.css'
+import { IS_DEMO_MODE, resetDemoHistory } from '../../api/client'
 
 const Sidebar = ({ activeTab = 'dashboard', onNavigate, onNavigateHome }) => {
   return (
@@ -20,6 +21,20 @@ const Sidebar = ({ activeTab = 'dashboard', onNavigate, onNavigateHome }) => {
           </div>
           <span className="sidebar-brand-name">Threatbox</span>
         </button>
+
+        {/* Demo Mode Badge */}
+        {IS_DEMO_MODE && (
+          <div
+            className="sidebar-demo-badge"
+            title="Interactive client-side simulation. No uploaded file is executed or analyzed by a live sandbox."
+          >
+            <span className="demo-badge-dot"></span>
+            <div className="demo-badge-text">
+              <span className="demo-badge-title">Interactive Demo Mode</span>
+              <span className="demo-badge-sub">Simulation · Zero Server</span>
+            </div>
+          </div>
+        )}
 
         {/* WORKSPACE Section */}
         <div className="sidebar-section">
@@ -116,6 +131,27 @@ const Sidebar = ({ activeTab = 'dashboard', onNavigate, onNavigateHome }) => {
 
       {/* Bottom: Settings */}
       <div className="sidebar-bottom">
+        {IS_DEMO_MODE && (
+          <button
+            type="button"
+            className="sidebar-nav-item sidebar-reset-btn"
+            title="Reset simulated jobs back to standard showcase profiles"
+            onClick={() => {
+              if (window.confirm('Reset demo analysis history back to default sample fixtures?')) {
+                resetDemoHistory()
+                window.location.reload()
+              }
+            }}
+          >
+            <span className="sidebar-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+            </span>
+            <span>Reset Demo Data</span>
+          </button>
+        )}
         <button
           type="button"
           className={`sidebar-nav-item ${activeTab === 'settings' ? 'active' : ''}`}
