@@ -61,6 +61,10 @@ type AIReport struct {
 }
 
 func generateAIReport(output mitre.AnalysisOutput) (json.RawMessage, error) {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("THREATBOX_AI_ENABLED")), "false") {
+		return nil, nil
+	}
+	
 	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OLLAMA_URL")), "/")
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"

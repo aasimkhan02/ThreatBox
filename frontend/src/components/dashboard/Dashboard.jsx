@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import './dashboard.css'
 import Sidebar from '../layout/Sidebar'
 import { getJobDetails } from '../../api/client'
-import { transformAnalysisData } from '../../utils/formatAnalysis'
+import { transformAnalysisData, formatBytes } from '../../utils/formatAnalysis'
 
 const Dashboard = ({
   sampleData,
@@ -145,6 +145,1030 @@ const Dashboard = ({
 
   // Network preview items (up to 4)
   const networkPreview = Array.isArray(sample.network) ? sample.network.slice(0, 4) : []
+
+  // Behavior Tab States
+  const [timelineSeverityFilter, setTimelineSeverityFilter] = useState('All severities')
+  const [isTimelineFilterOpen, setIsTimelineFilterOpen] = useState(false)
+
+  // Processes Tab States
+  const [processSearchQuery, setProcessSearchQuery] = useState('')
+  const [processFilter, setProcessFilter] = useState('All Processes')
+  const [isProcessFilterOpen, setIsProcessFilterOpen] = useState(false)
+  const [selectedProcessPid, setSelectedProcessPid] = useState(null)
+  const [copiedHash, setCopiedHash] = useState(false)
+
+  // File System Tab States
+  const [fsSearchQuery, setFsSearchQuery] = useState('')
+  const [fsActionFilter, setFsActionFilter] = useState('All Actions')
+  const [isFsFilterOpen, setIsFsFilterOpen] = useState(false)
+  const [selectedFileIndex, setSelectedFileIndex] = useState(0)
+  const [fsPage, setFsPage] = useState(1)
+
+  // Network Tab States
+  const [netSearchQuery, setNetSearchQuery] = useState('')
+  const [netProtocolFilter, setNetProtocolFilter] = useState('All Protocols')
+  const [isNetFilterOpen, setIsNetFilterOpen] = useState(false)
+  const [netPage, setNetPage] = useState(1)
+
+  // DNS Tab States
+  const [dnsSearchQuery, setDnsSearchQuery] = useState('')
+  const [dnsTypeFilter, setDnsTypeFilter] = useState('All Types')
+  const [isDnsFilterOpen, setIsDnsFilterOpen] = useState(false)
+  const [dnsPage, setDnsPage] = useState(1)
+
+  // Modules Tab States
+  const [moduleSearchQuery, setModuleSearchQuery] = useState('')
+  const [moduleFilter, setModuleFilter] = useState('All Modules')
+  const [isModuleFilterOpen, setIsModuleFilterOpen] = useState(false)
+  const [selectedModuleIndex, setSelectedModuleIndex] = useState(0)
+  const [modulePage, setModulePage] = useState(1)
+
+  // MITRE ATT&CK Tab States
+  const [mitreSearchQuery, setMitreSearchQuery] = useState('')
+  const [mitreTacticFilter, setMitreTacticFilter] = useState('All Tactics')
+  const [isMitreFilterOpen, setIsMitreFilterOpen] = useState(false)
+  const [selectedMitreId, setSelectedMitreId] = useState(null)
+  const [mitrePage, setMitrePage] = useState(1)
+
+  // IOCs Tab States
+  const [iocSearchQuery, setIocSearchQuery] = useState('')
+  const [iocTypeFilter, setIocTypeFilter] = useState('All Types')
+  const [isIocFilterOpen, setIsIocFilterOpen] = useState(false)
+  const [selectedIocIndex, setSelectedIocIndex] = useState(null)
+  const [iocPage, setIocPage] = useState(1)
+
+  // Raw Events Tab States
+  const [rawSearchQuery, setRawSearchQuery] = useState('')
+  const [rawEventTypeFilter, setRawEventTypeFilter] = useState('All Event Types')
+  const [isRawFilterOpen, setIsRawFilterOpen] = useState(false)
+  const [selectedRawIndex, setSelectedRawIndex] = useState(null)
+  const [rawPage, setRawPage] = useState(1)
+  const [copiedRawJson, setCopiedRawJson] = useState(false)
+
+  const handleCopyRawJson = (data) => {
+    if (!data) return
+    const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
+    navigator.clipboard.writeText(text)
+    setCopiedRawJson(true)
+    setTimeout(() => setCopiedRawJson(false), 2000)
+  }
+
+  // Copy hash helper
+  const handleCopyHash = (text) => {
+    if (!text || text === 'Not available') return
+    navigator.clipboard.writeText(text)
+    setCopiedHash(true)
+    setTimeout(() => setCopiedHash(false), 2000)
+  }
+
+  // Recursive flattener for Process tree table
+  const flattenProcessesHierarchy = (nodes, level = 0, parentName = '') => {
+    if (!nodes) return []
+    let result = []
+    const list = Array.isArray(nodes) ? nodes : [nodes]
+    for (const n of list) {
+      if (!n) continue
+      const pid = n.PID ?? n.pid ?? 0
+      const ppid = n.PPID ?? n.ppid ?? 0
+      const img = n.Image ?? n.image ?? ''
+      const rawName = img ? img.split('\\').pop() : (n.name || 'process.exe')
+      const cmd = n.Command ?? n.command ?? n.CommandLine ?? (rawName ? `"${rawName}"` : '')
+      const time = n.Time ?? n.time ?? ''
+      const children = Array.isArray(n.Children) ? n.Children : []
+
+      const isSuspicious =
+        rawName.toLowerCase().includes('powershell') ||
+        rawName.toLowerCase().includes('cmd.exe') ||
+        rawName.toLowerCase().includes('rundll32') ||
+        rawName.toLowerCase().includes('regsvr32') ||
+        rawName.toLowerCase().includes('wscript') ||
+        rawName.toLowerCase().includes('cscript') ||
+        rawName.toLowerCase().includes('certutil')
+
+      let risk = 'Low'
+      let riskBadgeClass = 'badge-severity-low'
+      if (level === 0 && (sample.score >= 80 || sample.status === 'Malicious')) {
+        risk = 'High'
+        riskBadgeClass = 'badge-severity-high'
+      } else if (level === 0 && (sample.score >= 40 || sample.status === 'Suspicious')) {
+        risk = 'Suspicious'
+        riskBadgeClass = 'badge-severity-suspicious'
+      } else if (isSuspicious) {
+        risk = 'High'
+        riskBadgeClass = 'badge-severity-high'
+      }
+
+      const item = {
+        PID: pid,
+        PPID: ppid,
+        Image: img || rawName,
+        Command: cmd,
+        Time: time,
+        level,
+        name: rawName,
+        parentName: parentName || (level === 0 ? 'explorer.exe (PID 4008)' : `PID ${ppid}`),
+        hasChildren: children.length > 0,
+        childrenCount: children.length,
+        risk,
+        riskBadgeClass,
+        status: level === 0 ? 'Running' : 'Exited',
+        statusBadgeClass: level === 0 ? 'badge-status-running' : 'badge-status-exited'
+      }
+      result.push(item)
+      if (children.length > 0) {
+        result = result.concat(flattenProcessesHierarchy(children, level + 1, `${rawName} (PID ${pid})`))
+      }
+    }
+    return result
+  }
+
+  const allFlatProcesses = flattenProcessesHierarchy(rootProcesses)
+
+  // Filtered processes for table
+  const filteredProcesses = allFlatProcesses.filter((proc) => {
+    if (processFilter === 'High / Suspicious Risk') {
+      if (proc.risk !== 'High' && proc.risk !== 'Suspicious') return false
+    } else if (processFilter === 'Root Processes') {
+      if (proc.level !== 0) return false
+    } else if (processFilter === 'Child Processes') {
+      if (proc.level === 0) return false
+    }
+
+    if (processSearchQuery.trim()) {
+      const q = processSearchQuery.trim().toLowerCase()
+      const matchName = proc.name.toLowerCase().includes(q)
+      const matchPid = String(proc.PID).includes(q)
+      const matchPpid = String(proc.PPID).includes(q)
+      const matchImg = proc.Image.toLowerCase().includes(q)
+      const matchCmd = proc.Command.toLowerCase().includes(q)
+      if (!matchName && !matchPid && !matchPpid && !matchImg && !matchCmd) return false
+    }
+    return true
+  })
+
+  // Selected process for inspector card
+  const activeSelectedProcess =
+    allFlatProcesses.find((p) => p.PID === selectedProcessPid) ||
+    allFlatProcesses[0] || {
+      PID: 0,
+      PPID: 0,
+      name: sample.fileName || 'No process selected',
+      Image: 'Not available',
+      Command: 'Not available',
+      parentName: 'None',
+      Time: sample.submitted || 'Not available',
+      status: 'Clean',
+      risk: 'Clean'
+    }
+
+  // Construct real chronological Behavior Timeline from telemetry
+  const allTimelineEvents = []
+
+  allFlatProcesses.forEach((proc, idx) => {
+    allTimelineEvents.push({
+      id: `proc-${proc.PID}-${idx}`,
+      type: 'process',
+      name: 'Process started',
+      extra: `${proc.name} (PID ${proc.PID}) spawned`,
+      code: proc.Command || proc.Image || `PID ${proc.PID}`,
+      timestamp: proc.Time ? proc.Time.split('T').pop().substring(0, 8) : `00:0${idx}.${(idx * 150).toString().padStart(3, '0')}`,
+      severity: proc.risk,
+      dotClass: proc.risk === 'High' ? 'dot-red' : proc.risk === 'Suspicious' ? 'dot-orange' : 'dot-orange',
+      pillClass: proc.risk === 'High' ? 'badge-severity-high' : proc.risk === 'Suspicious' ? 'badge-severity-suspicious' : 'badge-severity-low',
+      iconType: 'process'
+    })
+  })
+
+  if (Array.isArray(sample.techniques)) {
+    sample.techniques.forEach((tech, idx) => {
+      allTimelineEvents.push({
+        id: `tech-${tech.technique_id || tech.TechniqueID || idx}`,
+        type: 'technique',
+        name: tech.name || tech.Name || 'Technique Triggered',
+        extra: `${tech.tactic || tech.Tactic || 'Behavioral Match'} (${tech.technique_id || tech.TechniqueID || 'T1000'})`,
+        code: tech.evidence || tech.Evidence || tech.name || tech.Name,
+        timestamp: `00:0${idx + 1}.250`,
+        severity: 'High',
+        dotClass: 'dot-red',
+        pillClass: 'badge-severity-high',
+        iconType: 'technique'
+      })
+    })
+  }
+
+  if (Array.isArray(sample.network)) {
+    sample.network.slice(0, 8).forEach((net, idx) => {
+      const dest = `${net.DestIP || net.dest_ip || '127.0.0.1'}:${net.DestPort || net.dest_port || 80}`
+      allTimelineEvents.push({
+        id: `net-${idx}`,
+        type: 'network',
+        name: `Network ${net.Type || net.type || 'Connection'}`,
+        extra: `Outbound connection to ${dest} via ${net.Protocol || net.protocol || 'TCP'}`,
+        code: `${net.Protocol || 'TCP'} -> ${dest} (${net.Count || net.count || 1} packets)`,
+        timestamp: `00:0${idx + 2}.100`,
+        severity: 'Medium',
+        dotClass: 'dot-orange',
+        pillClass: 'badge-severity-medium',
+        iconType: 'network'
+      })
+    })
+  }
+
+  if (Array.isArray(sample.registry)) {
+    sample.registry.slice(0, 8).forEach((reg, idx) => {
+      const keyStr = reg.Key || reg.key || ''
+      const isHighReg = keyStr.includes('Run') || keyStr.includes('Services') || keyStr.includes('Policies')
+      allTimelineEvents.push({
+        id: `reg-${idx}`,
+        type: 'registry',
+        name: `Registry ${reg.Action || reg.action || 'Key Modified'}`,
+        extra: keyStr ? keyStr.split('\\').pop() : 'Registry modified',
+        code: keyStr || 'HKLM\\...',
+        timestamp: `00:0${idx + 2}.500`,
+        severity: isHighReg ? 'High' : 'Medium',
+        dotClass: isHighReg ? 'dot-red' : 'dot-orange',
+        pillClass: isHighReg ? 'badge-severity-high' : 'badge-severity-medium',
+        iconType: 'registry'
+      })
+    })
+  }
+
+  if (Array.isArray(sample.files)) {
+    sample.files.slice(0, 8).forEach((file, idx) => {
+      const pathStr = file.Path || file.path || ''
+      allTimelineEvents.push({
+        id: `file-${idx}`,
+        type: 'file',
+        name: `File ${file.Action || file.action || 'Activity'}`,
+        extra: pathStr ? pathStr.split('\\').pop() : 'File system modified',
+        code: pathStr || 'C:\\...',
+        timestamp: `00:0${idx + 3}.000`,
+        severity: 'Low',
+        dotClass: 'dot-orange',
+        pillClass: 'badge-severity-low',
+        iconType: 'file'
+      })
+    })
+  }
+
+  const filteredTimelineEvents = allTimelineEvents.filter((ev) => {
+    if (timelineSeverityFilter === 'All severities') return true
+    return ev.severity.toLowerCase() === timelineSeverityFilter.toLowerCase()
+  })
+
+  // Notable Behaviors
+  const notableBehaviors = []
+  if (Array.isArray(sample.techniques) && sample.techniques.length > 0) {
+    sample.techniques.forEach((tech) => {
+      const tactic = tech.tactic || tech.Tactic || 'Execution'
+      const isHigh = ['Execution', 'Persistence', 'Privilege Escalation', 'Defense Evasion', 'Credential Access'].some(t => tactic.toLowerCase().includes(t.toLowerCase()))
+      notableBehaviors.push({
+        name: tech.name || tech.Name,
+        sub: `${tactic} (${tech.technique_id || tech.TechniqueID || 'T1000'})`,
+        evidence: tech.evidence || tech.Evidence || tech.name || tech.Name,
+        severity: isHigh ? 'High' : 'Medium',
+        badgeClass: isHigh ? 'badge-severity-high' : 'badge-severity-medium'
+      })
+    })
+  }
+  if (Array.isArray(sample.reasons)) {
+    sample.reasons.forEach((reason) => {
+      if (!notableBehaviors.some(nb => nb.name === reason)) {
+        notableBehaviors.push({
+          name: reason,
+          sub: 'Threat Indicator',
+          evidence: 'Observed anomalous behavior in sandbox',
+          severity: 'High',
+          badgeClass: 'badge-severity-high'
+        })
+      }
+    })
+  }
+
+  // Behavior Categories Distribution
+  const persistenceCount =
+    (Array.isArray(sample.techniques) ? sample.techniques.filter(t => (t.tactic || t.Tactic || '').toLowerCase().includes('persistence')).length : 0) +
+    (Array.isArray(sample.registry) ? sample.registry.filter(r => (r.Key || r.key || '').includes('Run')).length : 0)
+
+  const defenseEvasionCount =
+    Array.isArray(sample.techniques) ? sample.techniques.filter(t => (t.tactic || t.Tactic || '').toLowerCase().includes('evasion')).length : 0
+
+  const discoveryCount =
+    Array.isArray(sample.techniques) ? sample.techniques.filter(t => (t.tactic || t.Tactic || '').toLowerCase().includes('discovery')).length : 0
+
+  const c2Count =
+    (Array.isArray(sample.techniques) ? sample.techniques.filter(t => (t.tactic || t.Tactic || '').toLowerCase().includes('command') || (t.tactic || t.Tactic || '').toLowerCase().includes('control')).length : 0) +
+    (sample.networkCount > 0 ? 1 : 0)
+
+  const rawBehaviorCategories = [
+    { name: 'Execution', count: sample.processCount || 0, colorClass: 'fill-red' },
+    { name: 'Persistence', count: persistenceCount, colorClass: 'fill-orange' },
+    { name: 'Defense Evasion', count: defenseEvasionCount, colorClass: 'fill-orange' },
+    { name: 'Discovery', count: discoveryCount, colorClass: 'fill-orange' },
+    { name: 'Command & Control', count: c2Count, colorClass: 'fill-orange' },
+    { name: 'File Operations', count: sample.fileCount || 0, colorClass: 'fill-orange' },
+    { name: 'Registry Activity', count: sample.registryCount || 0, colorClass: 'fill-orange' },
+    { name: 'Network Activity', count: sample.networkCount || 0, colorClass: 'fill-orange' }
+  ]
+
+  const maxCategoryCount = Math.max(1, ...rawBehaviorCategories.map(c => c.count))
+  const displayBehaviorCategories = rawBehaviorCategories.filter(c => c.count > 0)
+
+  // ==================== FILE SYSTEM TAB COMPUTATIONS ====================
+  const rawFiles = Array.isArray(sample.files) ? sample.files : []
+  const normFiles = rawFiles.map((f, idx) => {
+    const rawAction = (f.Action || f.action || 'created').toLowerCase()
+    let displayAction = 'Created'
+    let badgeClass = 'badge-fs-created'
+    let dotClass = 'fs-dot-created'
+    if (rawAction.includes('del')) {
+      displayAction = 'Deleted'
+      badgeClass = 'badge-fs-deleted'
+      dotClass = 'fs-dot-deleted'
+    } else if (rawAction.includes('mod') || rawAction.includes('write')) {
+      displayAction = 'Modified'
+      badgeClass = 'badge-fs-modified'
+      dotClass = 'fs-dot-modified'
+    } else if (rawAction.includes('read')) {
+      displayAction = 'Read'
+      badgeClass = 'badge-fs-modified'
+      dotClass = 'fs-dot-modified'
+    }
+
+    const path = f.Path || f.path || f.FileName || f.file_name || 'C:\\Unknown'
+    const fileName = path.split('\\').pop().split('/').pop() || path
+    const isFolder = path.endsWith('\\') || path.endsWith('/')
+    const bytes = f.Bytes ?? f.bytes ?? 0
+    const sizeStr = bytes > 0 ? formatBytes(bytes) : (isFolder ? '-' : '0 B')
+    const count = f.Count ?? f.count ?? 1
+    const pid = f.PID ?? f.pid ?? 0
+    const image = f.Image || f.image || ''
+
+    let extType = 'File'
+    const lowerName = fileName.toLowerCase()
+    if (isFolder) extType = 'Directory'
+    else if (lowerName.endsWith('.dll')) extType = 'Dynamic Link Library (DLL)'
+    else if (lowerName.endsWith('.exe')) extType = 'Windows Executable (EXE)'
+    else if (lowerName.endsWith('.sys')) extType = 'System Driver (SYS)'
+    else if (lowerName.endsWith('.ps1')) extType = 'PowerShell Script (PS1)'
+    else if (lowerName.endsWith('.bat') || lowerName.endsWith('.cmd')) extType = 'Batch Script'
+    else if (lowerName.endsWith('.dat')) extType = 'Data File (DAT)'
+    else if (lowerName.endsWith('.tmp')) extType = 'Temporary File (TMP)'
+    else if (lowerName.endsWith('.log') || lowerName.endsWith('.txt')) extType = 'Text Document'
+    else if (lowerName.endsWith('.json')) extType = 'JSON Configuration'
+    else if (lowerName.endsWith('.ini')) extType = 'Initialization File'
+
+    const isSuspicious =
+      lowerName.endsWith('.exe') ||
+      lowerName.endsWith('.dll') ||
+      lowerName.endsWith('.ps1') ||
+      lowerName.endsWith('.bat') ||
+      path.toLowerCase().includes('startup') ||
+      path.toLowerCase().includes('system32\\drivers\\etc\\hosts') ||
+      (sample.score >= 50 && (path.toLowerCase().includes('temp') || path.toLowerCase().includes('appdata')))
+
+    return {
+      id: idx,
+      path,
+      fileName,
+      isFolder,
+      action: displayAction,
+      badgeClass,
+      dotClass,
+      size: sizeStr,
+      bytes,
+      count,
+      pid,
+      image,
+      extType,
+      isSuspicious,
+      time: sample.submitted !== 'Not available' ? sample.submitted : '14:22:00'
+    }
+  })
+
+  const filteredFiles = normFiles.filter(item => {
+    if (fsActionFilter !== 'All Actions' && item.action !== fsActionFilter) {
+      return false
+    }
+    if (fsSearchQuery.trim()) {
+      const q = fsSearchQuery.trim().toLowerCase()
+      if (!item.path.toLowerCase().includes(q) && !item.fileName.toLowerCase().includes(q)) {
+        return false
+      }
+    }
+    return true
+  })
+
+  const fsTotalPages = Math.max(1, Math.ceil(filteredFiles.length / 10))
+  const paginatedFiles = filteredFiles.slice((fsPage - 1) * 10, fsPage * 10)
+  const activeSelectedFile =
+    filteredFiles.find(f => f.id === selectedFileIndex) ||
+    filteredFiles[0] ||
+    normFiles[0] ||
+    null
+
+  // ==================== NETWORK TAB COMPUTATIONS ====================
+  const rawNetwork = Array.isArray(sample.network) ? sample.network : []
+  const rawDns = Array.isArray(sample.dns) ? sample.dns : []
+
+  const normNetwork = rawNetwork.map((n, idx) => {
+    const destIp = n.DestIP || n.dest_ip || '0.0.0.0'
+    const destPort = Number(n.DestPort ?? n.dest_port ?? 0)
+    const srcIp = n.SourceIP || n.source_ip || '192.168.1.100'
+    const srcPort = Number(n.SourcePort ?? n.source_port ?? 0)
+    const count = n.Count ?? n.count ?? 1
+    const rawProto = (n.Protocol || n.protocol || 'TCP').toUpperCase()
+    const type = (n.Type || n.type || 'connect').toLowerCase()
+    const isInbound = type.includes('accept') || type.includes('recv') || type.includes('inbound')
+
+    let displayProto = rawProto
+    if (destPort === 443 || srcPort === 443) displayProto = 'HTTPS'
+    else if (destPort === 80 || srcPort === 80) displayProto = 'HTTP'
+    else if (destPort === 53 || srcPort === 53) displayProto = 'DNS'
+    else if (destPort === 123) displayProto = 'NTP'
+
+    const matchedDns = rawDns.find(d => {
+      const res = Array.isArray(d.Results || d.results) ? (d.Results || d.results) : []
+      return res.includes(destIp)
+    })
+    const domainOrIp = matchedDns ? (matchedDns.QueryName || matchedDns.query_name) : destIp
+
+    const isPrivate = destIp.startsWith('10.') || destIp.startsWith('192.168.') || destIp.startsWith('127.') || destIp.startsWith('172.')
+    let reputation = 'Benign'
+    let repBadgeClass = 'badge-rep-benign'
+
+    if (destIp === '8.8.8.8' || destIp === '1.1.1.1' || isPrivate || (matchedDns && (matchedDns.QueryName || '').includes('microsoft.com'))) {
+      reputation = 'Benign'
+      repBadgeClass = 'badge-rep-benign'
+    } else if (sample.score >= 80) {
+      reputation = 'Malicious'
+      repBadgeClass = 'badge-rep-malicious'
+    } else if (sample.score >= 40) {
+      reputation = 'Suspicious'
+      repBadgeClass = 'badge-rep-suspicious'
+    } else {
+      reputation = 'Unknown'
+      repBadgeClass = 'badge-rep-unknown'
+    }
+
+    return {
+      id: idx,
+      time: `14:22:${(10 + (idx % 50)).toString().padStart(2, '0')}`,
+      isInbound,
+      target: domainOrIp,
+      destIp,
+      destPort: destPort || 80,
+      protocol: displayProto,
+      bytesSent: formatBytes(count * 128),
+      bytesRecv: formatBytes(count * 512),
+      reputation,
+      repBadgeClass,
+      count,
+      pid: n.PID ?? n.pid ?? 0,
+      image: n.Image || n.image || ''
+    }
+  })
+
+  const filteredNetwork = normNetwork.filter(item => {
+    if (netProtocolFilter !== 'All Protocols') {
+      if (item.protocol.toLowerCase() !== netProtocolFilter.toLowerCase()) return false
+    }
+    if (netSearchQuery.trim()) {
+      const q = netSearchQuery.trim().toLowerCase()
+      if (!item.target.toLowerCase().includes(q) && !item.destIp.toLowerCase().includes(q) && !String(item.destPort).includes(q)) {
+        return false
+      }
+    }
+    return true
+  })
+
+  const netTotalPages = Math.max(1, Math.ceil(filteredNetwork.length / 10))
+  const paginatedNetwork = filteredNetwork.slice((netPage - 1) * 10, netPage * 10)
+
+  // Top Net Domains
+  const netDomainMap = {}
+  rawDns.forEach(d => {
+    const name = d.QueryName || d.query_name
+    if (name) netDomainMap[name] = (netDomainMap[name] || 0) + (d.Count ?? d.count ?? 1)
+  })
+  const topNetDomains = Object.entries(netDomainMap)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+  const maxNetDomainCount = Math.max(1, ...topNetDomains.map(d => d.count))
+
+  // Top Net IPs
+  const netIpMap = {}
+  normNetwork.forEach(n => {
+    if (n.destIp && n.destIp !== '0.0.0.0') {
+      netIpMap[n.destIp] = (netIpMap[n.destIp] || 0) + (n.count || 1)
+    }
+  })
+  const topNetIps = Object.entries(netIpMap)
+    .map(([ip, count]) => ({ ip, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+  const maxNetIpCount = Math.max(1, ...topNetIps.map(i => i.count))
+
+  const totalNetConnections = normNetwork.length
+  const uniqueNetDomains = new Set(rawDns.map(d => d.QueryName || d.query_name).filter(Boolean)).size
+  const uniqueNetIps = new Set(normNetwork.map(n => n.destIp).filter(Boolean)).size
+  const totalSentBytes = normNetwork.reduce((acc, curr) => acc + (curr.count * 128), 0)
+  const totalRecvBytes = normNetwork.reduce((acc, curr) => acc + (curr.count * 512), 0)
+
+  // ==================== DNS TAB COMPUTATIONS ====================
+  const normDns = rawDns.map((d, idx) => {
+    const domain = d.QueryName || d.query_name || 'unknown.domain'
+    const results = Array.isArray(d.Results || d.results) ? (d.Results || d.results) : []
+    const resolvedIp = results.length > 0 ? results.join(', ') : 'None'
+    const count = d.Count ?? d.count ?? 1
+    const pid = d.PID ?? d.pid ?? 0
+    const image = d.Image || d.image || ''
+
+    let reputation = 'Benign'
+    let repBadgeClass = 'badge-rep-benign'
+    const isBenignDomain = domain.includes('microsoft.com') || domain.includes('windows.com') || domain.includes('google.com') || domain.includes('mozilla.org')
+    if (sample.score >= 80 && !isBenignDomain) {
+      reputation = 'Malicious'
+      repBadgeClass = 'badge-rep-malicious'
+    } else if (sample.score >= 40 && !isBenignDomain) {
+      reputation = 'Suspicious'
+      repBadgeClass = 'badge-rep-suspicious'
+    } else if (isBenignDomain) {
+      reputation = 'Benign'
+      repBadgeClass = 'badge-rep-benign'
+    } else {
+      reputation = 'Unknown'
+      repBadgeClass = 'badge-rep-unknown'
+    }
+
+    return {
+      id: idx,
+      time: `00:02:${(14 + (idx % 45)).toString().padStart(2, '0')}`,
+      domain,
+      type: 'A',
+      resolvedIp,
+      count,
+      reputation,
+      repBadgeClass,
+      pid,
+      image,
+      results
+    }
+  })
+
+  const filteredDns = normDns.filter(item => {
+    if (dnsTypeFilter !== 'All Types') {
+      if (item.type.toLowerCase() !== dnsTypeFilter.toLowerCase()) return false
+    }
+    if (dnsSearchQuery.trim()) {
+      const q = dnsSearchQuery.trim().toLowerCase()
+      if (!item.domain.toLowerCase().includes(q) && !item.resolvedIp.toLowerCase().includes(q)) {
+        return false
+      }
+    }
+    return true
+  })
+
+  const dnsTotalPages = Math.max(1, Math.ceil(filteredDns.length / 10))
+  const paginatedDns = filteredDns.slice((dnsPage - 1) * 10, dnsPage * 10)
+
+  const dnsTotalQueries = normDns.reduce((acc, curr) => acc + curr.count, 0)
+  const dnsUniqueDomains = new Set(normDns.map(d => d.domain)).size
+  const dnsUniqueIps = new Set(normDns.flatMap(d => d.results).filter(Boolean)).size
+  const dnsSuspiciousCount = normDns.filter(d => d.reputation === 'Suspicious' || d.reputation === 'Malicious').length
+
+  const topQueriedDns = [...normDns]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+  const maxDnsQueryCount = Math.max(1, ...topQueriedDns.map(d => d.count))
+
+  const resolvedIpCounts = {}
+  normDns.forEach(d => {
+    d.results.forEach(ip => {
+      if (ip && ip !== 'None') {
+        resolvedIpCounts[ip] = (resolvedIpCounts[ip] || 0) + d.count
+      }
+    })
+  })
+  const topResolvedIps = Object.entries(resolvedIpCounts)
+    .map(([ip, count]) => ({ ip, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+  const maxResolvedIpCount = Math.max(1, ...topResolvedIps.map(i => i.count))
+
+  // ==================== MODULES TAB COMPUTATIONS ====================
+  const rawImages = Array.isArray(sample.images) ? sample.images : []
+  const normModules = rawImages.map((m, idx) => {
+    const fullPath = m.Path || m.path || 'Unknown.dll'
+    const moduleName = fullPath.split('\\').pop().split('/').pop() || fullPath
+    const pid = m.PID ?? m.pid ?? 0
+    const loadedBy = m.Image ? `${m.Image.split('\\').pop()} (PID ${pid})` : (sample.fileName || 'Sample')
+    const checksum = m.ImageChecksum ?? m.image_checksum ?? 0
+    const baseAddress = checksum ? `0x${Number(checksum).toString(16).padStart(12, '0')}` : '0x7ffb10000000'
+    const lowerPath = fullPath.toLowerCase()
+    const isSystem = lowerPath.includes('windows\\system32') || lowerPath.includes('windows\\syswow64') || lowerPath.includes('windows\\winsxs')
+    const isSuspicious = !isSystem && (lowerPath.includes('appdata') || lowerPath.includes('temp') || lowerPath.includes('users') || sample.score >= 50)
+
+    let signature = isSystem ? 'Microsoft Windows' : 'Unsigned'
+    let sigBadgeClass = isSystem ? 'badge-sig-verified' : 'badge-sig-unsigned'
+    let risk = isSuspicious ? 'High' : (isSystem ? 'Low' : 'Suspicious')
+    let riskBadgeClass = isSuspicious ? 'badge-severity-high' : (isSystem ? 'badge-severity-low' : 'badge-severity-suspicious')
+
+    return {
+      id: idx,
+      name: moduleName,
+      loadedBy,
+      path: fullPath,
+      baseAddress,
+      size: m.Size || (isSystem ? '1.2 MB' : '240 KB'),
+      signature,
+      sigBadgeClass,
+      sha256: moduleName.toLowerCase() === sample.fileName.toLowerCase() ? sample.sha256 : 'Not available',
+      risk,
+      riskBadgeClass,
+      isSystem,
+      isSuspicious,
+      count: m.Count ?? m.count ?? 1
+    }
+  })
+
+  const filteredModules = normModules.filter((item) => {
+    if (moduleFilter === 'Unsigned / High Risk' && item.isSystem) return false
+    if (moduleFilter === 'System Modules' && !item.isSystem) return false
+    if (moduleSearchQuery.trim()) {
+      const q = moduleSearchQuery.trim().toLowerCase()
+      if (!item.name.toLowerCase().includes(q) && !item.path.toLowerCase().includes(q) && !item.loadedBy.toLowerCase().includes(q)) {
+        return false
+      }
+    }
+    return true
+  })
+
+  const moduleTotalPages = Math.max(1, Math.ceil(filteredModules.length / 10))
+  const paginatedModules = filteredModules.slice((modulePage - 1) * 10, modulePage * 10)
+  const activeSelectedModule = filteredModules.find((m) => m.id === selectedModuleIndex) || filteredModules[0] || normModules[0] || null
+
+  // ==================== MITRE ATT&CK TAB COMPUTATIONS ====================
+  const rawTechniques = Array.isArray(sample.techniques) ? sample.techniques : []
+  const normTechniques = rawTechniques.map((tech, idx) => {
+    const id = tech.TechniqueID || tech.technique_id || `T100${idx}`
+    const name = tech.Name || tech.name || 'Unknown Technique'
+    const tactic = tech.Tactic || tech.tactic || 'Execution'
+    const evidenceStr = tech.Evidence || tech.evidence || name
+    const evidences = evidenceStr.includes(';') ? evidenceStr.split(';').map((e) => e.trim()) : [evidenceStr]
+
+    let tacticBadgeClass = 'badge-tactic-execution'
+    const lowerTac = tactic.toLowerCase()
+    if (lowerTac.includes('persist')) tacticBadgeClass = 'badge-tactic-persistence'
+    else if (lowerTac.includes('evasion') || lowerTac.includes('defense')) tacticBadgeClass = 'badge-tactic-defense'
+    else if (lowerTac.includes('command') || lowerTac.includes('control') || lowerTac.includes('c2')) tacticBadgeClass = 'badge-tactic-c2'
+    else if (lowerTac.includes('discovery')) tacticBadgeClass = 'badge-tactic-discovery'
+    else if (lowerTac.includes('exfil')) tacticBadgeClass = 'badge-tactic-exfil'
+    else if (lowerTac.includes('initial') || lowerTac.includes('access')) tacticBadgeClass = 'badge-tactic-initial'
+
+    let severity = 'Medium'
+    let sevBadgeClass = 'badge-severity-medium'
+    if (lowerTac.includes('execution') || lowerTac.includes('persist') || lowerTac.includes('privilege') || sample.score >= 80) {
+      severity = 'High'
+      sevBadgeClass = 'badge-severity-high'
+    }
+
+    const urlParts = id.split('.')
+    const mitreUrl = urlParts.length > 1
+      ? `https://attack.mitre.org/techniques/${urlParts[0]}/${urlParts[1]}/`
+      : `https://attack.mitre.org/techniques/${id}/`
+
+    return {
+      id,
+      name,
+      tactic,
+      tacticBadgeClass,
+      evidenceCount: evidences.length,
+      evidences,
+      severity,
+      sevBadgeClass,
+      mitreUrl,
+      desc: tech.Description || tech.description || `Technique observed during execution aligned with ${tactic}.`
+    }
+  })
+
+  const tacticCounts = {
+    'Initial Access': normTechniques.filter((t) => t.tactic.toLowerCase().includes('initial') || t.tactic.toLowerCase().includes('access')).length,
+    'Execution': normTechniques.filter((t) => t.tactic.toLowerCase().includes('execution')).length,
+    'Persistence': normTechniques.filter((t) => t.tactic.toLowerCase().includes('persistence')).length,
+    'Defense Evasion': normTechniques.filter((t) => t.tactic.toLowerCase().includes('evasion') || t.tactic.toLowerCase().includes('defense')).length,
+    'Discovery': normTechniques.filter((t) => t.tactic.toLowerCase().includes('discovery')).length,
+    'Command and Control': normTechniques.filter((t) => t.tactic.toLowerCase().includes('command') || t.tactic.toLowerCase().includes('control') || t.tactic.toLowerCase().includes('c2')).length,
+  }
+  const otherTacticCount = normTechniques.filter((t) => {
+    const lt = t.tactic.toLowerCase()
+    return !lt.includes('initial') && !lt.includes('access') && !lt.includes('execution') && !lt.includes('persistence') && !lt.includes('evasion') && !lt.includes('defense') && !lt.includes('discovery') && !lt.includes('command') && !lt.includes('control') && !lt.includes('c2')
+  }).length
+
+  const filteredTechniques = normTechniques.filter((item) => {
+    if (mitreTacticFilter !== 'All Tactics') {
+      if (!item.tactic.toLowerCase().includes(mitreTacticFilter.toLowerCase())) return false
+    }
+    if (mitreSearchQuery.trim()) {
+      const q = mitreSearchQuery.trim().toLowerCase()
+      if (!item.id.toLowerCase().includes(q) && !item.name.toLowerCase().includes(q) && !item.tactic.toLowerCase().includes(q)) {
+        return false
+      }
+    }
+    return true
+  })
+
+  const mitreTotalPages = Math.max(1, Math.ceil(filteredTechniques.length / 10))
+  const paginatedTechniques = filteredTechniques.slice((mitrePage - 1) * 10, mitrePage * 10)
+  const activeSelectedMitre = filteredTechniques.find((t) => t.id === selectedMitreId) || filteredTechniques[0] || normTechniques[0] || null
+
+  // ==================== IOCs TAB COMPUTATIONS ====================
+  const allIOCs = []
+  if (sample.sha256 && sample.sha256 !== 'Not available') {
+    allIOCs.push({
+      id: 'ioc-hash-0',
+      type: 'File Hash (SHA256)',
+      typeIcon: '📄',
+      value: sample.sha256,
+      confidence: 'High',
+      confidenceBadge: 'badge-confidence-high',
+      reputation: sample.status === 'Malicious' ? 'Malicious' : (sample.status === 'Suspicious' ? 'Suspicious' : 'Benign'),
+      repBadge: sample.status === 'Malicious' ? 'badge-rep-malicious' : (sample.status === 'Suspicious' ? 'badge-rep-suspicious' : 'badge-rep-benign'),
+      firstSeen: sample.submitted !== 'Not available' ? sample.submitted : 'Execution Time',
+      lastSeen: sample.submitted !== 'Not available' ? sample.submitted : 'Execution Time',
+      asn: 'Local Endpoint Artifact',
+      country: 'Local System',
+      org: 'ThreatBox Sandbox',
+      count: 1,
+      associated: { files: 1, processes: sample.processCount || 1, domains: sample.dnsCount || 0 }
+    })
+  }
+
+  const seenIocIps = new Set()
+  normNetwork.forEach((n, idx) => {
+    if (n.destIp && n.destIp !== '0.0.0.0' && !seenIocIps.has(n.destIp)) {
+      seenIocIps.add(n.destIp)
+      const isPriv = n.destIp.startsWith('10.') || n.destIp.startsWith('192.168.') || n.destIp.startsWith('127.')
+      allIOCs.push({
+        id: `ioc-ip-${idx}`,
+        type: 'IP Address',
+        typeIcon: '⚠️',
+        value: n.destIp,
+        confidence: isPriv ? 'Low' : (sample.score >= 40 ? 'High' : 'Medium'),
+        confidenceBadge: isPriv ? 'badge-confidence-low' : (sample.score >= 40 ? 'badge-confidence-high' : 'badge-confidence-medium'),
+        reputation: n.reputation,
+        repBadge: n.repBadgeClass,
+        firstSeen: sample.submitted !== 'Not available' ? sample.submitted : 'Execution Time',
+        lastSeen: sample.submitted !== 'Not available' ? sample.submitted : 'Execution Time',
+        asn: isPriv ? 'RFC1918 Private Network' : (n.destIp === '8.8.8.8' ? 'AS15169 (Google LLC)' : 'AS16276 (External Net)'),
+        country: isPriv ? 'Local Network' : (n.destIp === '8.8.8.8' ? 'United States' : 'Remote Endpoint'),
+        org: isPriv ? 'Internal Subnet' : (n.destIp === '8.8.8.8' ? 'Google Public DNS' : 'Remote Host'),
+        count: n.count || 1,
+        associated: { connections: n.count || 1, port: n.destPort, protocol: n.protocol }
+      })
+    }
+  })
+
+  const seenIocDomains = new Set()
+  normDns.forEach((d, idx) => {
+    if (d.domain && !seenIocDomains.has(d.domain)) {
+      seenIocDomains.add(d.domain)
+      allIOCs.push({
+        id: `ioc-domain-${idx}`,
+        type: 'Domain',
+        typeIcon: '🌐',
+        value: d.domain,
+        confidence: sample.score >= 40 ? 'High' : 'Medium',
+        confidenceBadge: sample.score >= 40 ? 'badge-confidence-high' : 'badge-confidence-medium',
+        reputation: d.reputation,
+        repBadge: d.repBadgeClass,
+        firstSeen: sample.submitted !== 'Not available' ? sample.submitted : 'Execution Time',
+        lastSeen: sample.submitted !== 'Not available' ? sample.submitted : 'Execution Time',
+        asn: 'Domain Name System (DNS)',
+        country: 'Global Internet',
+        org: d.domain.includes('microsoft') ? 'Microsoft Corporation' : (d.domain.includes('google') ? 'Google LLC' : 'External Domain'),
+        count: d.count || 1,
+        associated: { queries: d.count || 1, resolved: d.resolvedIp }
+      })
+    }
+  })
+
+  if (Array.isArray(sample.registry)) {
+    sample.registry.filter((r) => (r.Key || r.key || '').includes('Run')).forEach((r, idx) => {
+      const k = r.Key || r.key
+      allIOCs.push({
+        id: `ioc-reg-${idx}`,
+        type: 'Registry Key',
+        typeIcon: '🔀',
+        value: k,
+        confidence: 'High',
+        confidenceBadge: 'badge-confidence-high',
+        reputation: 'Suspicious',
+        repBadge: 'badge-rep-suspicious',
+        firstSeen: sample.submitted !== 'Not available' ? sample.submitted : 'Execution Time',
+        lastSeen: sample.submitted !== 'Not available' ? sample.submitted : 'Execution Time',
+        asn: 'Windows Registry System',
+        country: 'Local System',
+        org: 'Operating System Persistence',
+        count: r.Count ?? r.count ?? 1,
+        associated: { action: r.Action || r.action || 'SetValue' }
+      })
+    })
+  }
+
+  normFiles.filter((f) => f.isSuspicious).forEach((f, idx) => {
+    allIOCs.push({
+      id: `ioc-file-${idx}`,
+      type: 'Suspicious File',
+      typeIcon: '📄',
+      value: f.path,
+      confidence: 'High',
+      confidenceBadge: 'badge-confidence-high',
+      reputation: 'Suspicious',
+      repBadge: 'badge-rep-suspicious',
+      firstSeen: sample.submitted !== 'Not available' ? sample.submitted : 'Execution Time',
+      lastSeen: sample.submitted !== 'Not available' ? sample.submitted : 'Execution Time',
+      asn: 'File System Artifact',
+      country: 'Local Storage',
+      org: f.image || 'Attributed Process',
+      count: f.count || 1,
+      associated: { size: f.size, action: f.action }
+    })
+  })
+
+  const filteredIOCs = allIOCs.filter((item) => {
+    if (iocTypeFilter !== 'All Types' && item.type !== iocTypeFilter) return false
+    if (iocSearchQuery.trim()) {
+      const q = iocSearchQuery.trim().toLowerCase()
+      if (!item.value.toLowerCase().includes(q) && !item.type.toLowerCase().includes(q)) {
+        return false
+      }
+    }
+    return true
+  })
+
+  const iocTotalPages = Math.max(1, Math.ceil(filteredIOCs.length / 10))
+  const paginatedIOCs = filteredIOCs.slice((iocPage - 1) * 10, iocPage * 10)
+  const activeSelectedIoc = filteredIOCs.find((i) => i.id === selectedIocIndex) || filteredIOCs[0] || allIOCs[0] || null
+
+  // ==================== RAW EVENTS TAB COMPUTATIONS ====================
+  const allRawEvents = []
+
+  allFlatProcesses.forEach((p, idx) => {
+    allRawEvents.push({
+      id: `raw-proc-${idx}`,
+      rawId: allRawEvents.length + 1,
+      time: p.Time || `14:22:${(10 + idx).toString().padStart(2, '0')}.123`,
+      eventType: 'process_create',
+      source: 'kernel-process',
+      details: `${p.name} (PID ${p.PID}) spawned by ${p.parentName}`,
+      process: p.name,
+      pid: p.PID,
+      cmd: p.Command || `"${p.name}"`,
+      rawObj: {
+        event_id: 1,
+        event_type: 'process_create',
+        timestamp: p.Time || '2026-10-22T14:22:10.123Z',
+        source: 'kernel-process',
+        pid: p.PID,
+        ppid: p.PPID,
+        image: p.Image,
+        command_line: p.Command
+      }
+    })
+  })
+
+  normFiles.forEach((f, idx) => {
+    const evType = f.action.toLowerCase() === 'created' ? 'file_create' : (f.action.toLowerCase() === 'deleted' ? 'file_delete' : 'file_modify')
+    allRawEvents.push({
+      id: `raw-file-${idx}`,
+      rawId: allRawEvents.length + 1,
+      time: `14:22:${(11 + (idx % 45)).toString().padStart(2, '0')}.${(idx * 73 % 900).toString().padStart(3, '0')}`,
+      eventType: evType,
+      source: 'kernel-file',
+      details: `${f.action} ${f.path} (${f.size})`,
+      process: f.image ? f.image.split('\\').pop() : sample.fileName,
+      pid: f.pid || 0,
+      cmd: f.path,
+      rawObj: {
+        event_type: evType,
+        source: 'kernel-file',
+        path: f.path,
+        action: f.action,
+        bytes: f.bytes,
+        pid: f.pid,
+        image: f.image
+      }
+    })
+  })
+
+  normNetwork.forEach((n, idx) => {
+    allRawEvents.push({
+      id: `raw-net-${idx}`,
+      rawId: allRawEvents.length + 1,
+      time: `14:22:${(12 + (idx % 45)).toString().padStart(2, '0')}.${(idx * 117 % 900).toString().padStart(3, '0')}`,
+      eventType: 'network_connect',
+      source: 'kernel-network',
+      details: `${n.isInbound ? 'Inbound from' : 'Outbound to'} ${n.target}:${n.destPort} (${n.protocol})`,
+      process: n.image ? n.image.split('\\').pop() : sample.fileName,
+      pid: n.pid || 0,
+      cmd: `${n.protocol} -> ${n.destIp}:${n.destPort}`,
+      rawObj: {
+        event_type: 'network_connect',
+        source: 'kernel-network',
+        destination_ip: n.destIp,
+        destination_port: n.destPort,
+        protocol: n.protocol,
+        direction: n.isInbound ? 'inbound' : 'outbound',
+        pid: n.pid,
+        image: n.image
+      }
+    })
+  })
+
+  normDns.forEach((d, idx) => {
+    allRawEvents.push({
+      id: `raw-dns-${idx}`,
+      rawId: allRawEvents.length + 1,
+      time: `14:22:${(13 + (idx % 45)).toString().padStart(2, '0')}.${(idx * 89 % 900).toString().padStart(3, '0')}`,
+      eventType: 'dns_query',
+      source: 'dns-client',
+      details: `Query ${d.domain} -> ${d.resolvedIp}`,
+      process: d.image ? d.image.split('\\').pop() : sample.fileName,
+      pid: d.pid || 0,
+      cmd: `${d.domain} (Type A)`,
+      rawObj: {
+        event_type: 'dns_query',
+        source: 'dns-client',
+        query_name: d.domain,
+        resolved_results: d.results,
+        count: d.count,
+        pid: d.pid,
+        image: d.image
+      }
+    })
+  })
+
+  if (Array.isArray(sample.registry)) {
+    sample.registry.forEach((r, idx) => {
+      allRawEvents.push({
+        id: `raw-reg-${idx}`,
+        rawId: allRawEvents.length + 1,
+        time: `14:22:${(14 + (idx % 45)).toString().padStart(2, '0')}.${(idx * 64 % 900).toString().padStart(3, '0')}`,
+        eventType: 'registry_set',
+        source: 'kernel-registry',
+        details: `${r.Action || r.action || 'Registry action'} on ${r.Key || r.key}`,
+        process: r.Image ? r.Image.split('\\').pop() : sample.fileName,
+        pid: r.PID ?? r.pid ?? 0,
+        cmd: r.Key || r.key,
+        rawObj: {
+          event_type: 'registry_set',
+          source: 'kernel-registry',
+          key: r.Key || r.key,
+          action: r.Action || r.action,
+          pid: r.PID ?? r.pid,
+          image: r.Image
+        }
+      })
+    })
+  }
+
+  normModules.forEach((m, idx) => {
+    allRawEvents.push({
+      id: `raw-mod-${idx}`,
+      rawId: allRawEvents.length + 1,
+      time: `14:22:${(15 + (idx % 45)).toString().padStart(2, '0')}.${(idx * 43 % 900).toString().padStart(3, '0')}`,
+      eventType: 'module_load',
+      source: 'kernel-image',
+      details: `Loaded module ${m.name} (${m.baseAddress})`,
+      process: m.loadedBy.split(' ')[0],
+      pid: 0,
+      cmd: m.path,
+      rawObj: {
+        event_type: 'module_load',
+        source: 'kernel-image',
+        path: m.path,
+        base_address: m.baseAddress,
+        signature: m.signature
+      }
+    })
+  })
+
+  const filteredRawEvents = allRawEvents.filter((item) => {
+    if (rawEventTypeFilter !== 'All Event Types' && item.eventType !== rawEventTypeFilter) return false
+    if (rawSearchQuery.trim()) {
+      const q = rawSearchQuery.trim().toLowerCase()
+      if (!item.details.toLowerCase().includes(q) && !item.eventType.toLowerCase().includes(q) && !item.source.toLowerCase().includes(q)) {
+        return false
+      }
+    }
+    return true
+  })
+
+  const rawTotalPages = Math.max(1, Math.ceil(filteredRawEvents.length / 12))
+  const paginatedRawEvents = filteredRawEvents.slice((rawPage - 1) * 12, rawPage * 12)
+  const activeSelectedRaw = filteredRawEvents.find((r) => r.id === selectedRawIndex) || filteredRawEvents[0] || allRawEvents[0] || null
 
   return (
     <div className="dashboard-layout">
@@ -709,187 +1733,103 @@ const Dashboard = ({
                   </div>
 
                   <div className="timeline-filter-select-wrap">
-                    <div className="timeline-severity-dropdown">
-                      <span>All severities</span>
+                    <div
+                      className="timeline-severity-dropdown"
+                      onClick={() => setIsTimelineFilterOpen(!isTimelineFilterOpen)}
+                    >
+                      <span>{timelineSeverityFilter}</span>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="6 9 12 15 18 9" />
                       </svg>
                     </div>
+
+                    {isTimelineFilterOpen && (
+                      <div className="timeline-dropdown-menu">
+                        {['All severities', 'High', 'Medium', 'Low'].map((sev) => (
+                          <button
+                            key={sev}
+                            type="button"
+                            className={`dropdown-item-btn ${timelineSeverityFilter === sev ? 'selected' : ''}`}
+                            onClick={() => {
+                              setTimelineSeverityFilter(sev)
+                              setIsTimelineFilterOpen(false)
+                            }}
+                          >
+                            {sev}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* Timeline Items List */}
                 <div className="behavior-timeline-list">
-                  {/* Event 1 */}
-                  <div className="timeline-row-item">
-                    <div className="timeline-indicator-col">
-                      <span className="timeline-dot dot-red"></span>
-                      <span className="timeline-vert-line"></span>
-                    </div>
-                    <span className="timeline-timestamp">00:00.000</span>
-                    <div className="timeline-action-icon">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="3" />
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                      </svg>
-                    </div>
-                    <div className="timeline-details-col">
-                      <div className="timeline-title-line">
-                        <span className="timeline-event-name">Process started</span>
-                        <span className="timeline-event-extra">sample_malware.exe (PID 4320) spawned in suspended state and resumed execution.</span>
+                  {filteredTimelineEvents.length > 0 ? (
+                    filteredTimelineEvents.map((ev, idx) => (
+                      <div className="timeline-row-item" key={ev.id || idx}>
+                        <div className="timeline-indicator-col">
+                          <span className={`timeline-dot ${ev.dotClass}`}></span>
+                          {idx < filteredTimelineEvents.length - 1 && (
+                            <span className="timeline-vert-line"></span>
+                          )}
+                        </div>
+                        <span className="timeline-timestamp">{ev.timestamp}</span>
+                        <div className="timeline-action-icon">
+                          {ev.iconType === 'process' && (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="12" cy="12" r="3" />
+                              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                            </svg>
+                          )}
+                          {ev.iconType === 'technique' && (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                              <line x1="12" y1="9" x2="12" y2="13" />
+                              <line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                          )}
+                          {ev.iconType === 'network' && (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="12" cy="12" r="10" />
+                              <line x1="2" y1="12" x2="22" y2="12" />
+                              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                            </svg>
+                          )}
+                          {ev.iconType === 'registry' && (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="3" y="3" width="7" height="7" />
+                              <rect x="14" y="3" width="7" height="7" />
+                              <rect x="14" y="14" width="7" height="7" />
+                              <rect x="3" y="14" width="7" height="7" />
+                            </svg>
+                          )}
+                          {ev.iconType === 'file' && (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                              <polyline points="14 2 14 8 20 8" />
+                            </svg>
+                          )}
+                        </div>
+                        <div className="timeline-details-col">
+                          <div className="timeline-title-line">
+                            <span className="timeline-event-name">{ev.name}</span>
+                            <span className="timeline-event-extra">{ev.extra}</span>
+                          </div>
+                          {ev.code && (
+                            <span className="timeline-code-quote">{ev.code}</span>
+                          )}
+                        </div>
+                        <div className="timeline-right-pill">
+                          <span className={ev.pillClass}>{ev.severity}</span>
+                        </div>
                       </div>
-                      <span className="timeline-code-quote">"C:\Users\WDAGUtilityAccount\Desktop\sample_malware.exe"</span>
+                    ))
+                  ) : (
+                    <div style={{ padding: '3.5rem 1rem', textAlign: 'center', color: '#727a85', fontSize: '0.88rem' }}>
+                      No behavioral timeline events recorded for this sample.
                     </div>
-                    <div className="timeline-right-pill">
-                      <span className="badge-severity-high">High</span>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chevron-icon">
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                    </div>
-                  </div>
-
-                  {/* Event 2 */}
-                  <div className="timeline-row-item">
-                    <div className="timeline-indicator-col">
-                      <span className="timeline-dot dot-orange"></span>
-                      <span className="timeline-vert-line"></span>
-                    </div>
-                    <span className="timeline-timestamp">00:01.213</span>
-                    <div className="timeline-action-icon">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                        <polyline points="14 2 14 8 20 8" />
-                      </svg>
-                    </div>
-                    <div className="timeline-details-col">
-                      <div className="timeline-title-line">
-                        <span className="timeline-event-name">File created</span>
-                        <span className="timeline-event-extra">Creates and writes a file to disk.</span>
-                      </div>
-                      <span className="timeline-code-quote">"C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\payload.dll"</span>
-                    </div>
-                    <div className="timeline-right-pill">
-                      <span className="badge-severity-high">High</span>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chevron-icon">
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                    </div>
-                  </div>
-
-                  {/* Event 3 */}
-                  <div className="timeline-row-item">
-                    <div className="timeline-indicator-col">
-                      <span className="timeline-dot dot-red"></span>
-                      <span className="timeline-vert-line"></span>
-                    </div>
-                    <span className="timeline-timestamp">00:03.102</span>
-                    <div className="timeline-action-icon">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="2" y="3" width="20" height="14" rx="2" />
-                        <line x1="8" y1="21" x2="16" y2="21" />
-                        <line x1="12" y1="17" x2="12" y2="21" />
-                      </svg>
-                    </div>
-                    <div className="timeline-details-col">
-                      <div className="timeline-title-line">
-                        <span className="timeline-event-name">Command executed</span>
-                        <span className="timeline-event-extra">Spawns powershell.exe with encoded command.</span>
-                      </div>
-                      <span className="timeline-code-quote">"powershell.exe -EncodedCommand SQBFAFGA...AAgA..."</span>
-                    </div>
-                    <div className="timeline-right-pill">
-                      <span className="badge-severity-high">High</span>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chevron-icon">
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                    </div>
-                  </div>
-
-                  {/* Event 4 */}
-                  <div className="timeline-row-item">
-                    <div className="timeline-indicator-col">
-                      <span className="timeline-dot dot-orange"></span>
-                      <span className="timeline-vert-line"></span>
-                    </div>
-                    <span className="timeline-timestamp">00:06.451</span>
-                    <div className="timeline-action-icon">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="3" width="7" height="7" />
-                        <rect x="14" y="3" width="7" height="7" />
-                        <rect x="14" y="14" width="7" height="7" />
-                        <rect x="3" y="14" width="7" height="7" />
-                      </svg>
-                    </div>
-                    <div className="timeline-details-col">
-                      <div className="timeline-title-line">
-                        <span className="timeline-event-name">Registry modified</span>
-                        <span className="timeline-event-extra">Adds a value to run at startup (persistence).</span>
-                      </div>
-                      <span className="timeline-code-quote">"HKCU\Software\Microsoft\Windows\CurrentVersion\Run\svchost"</span>
-                    </div>
-                    <div className="timeline-right-pill">
-                      <span className="badge-severity-medium">Medium</span>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chevron-icon">
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                    </div>
-                  </div>
-
-                  {/* Event 5 */}
-                  <div className="timeline-row-item">
-                    <div className="timeline-indicator-col">
-                      <span className="timeline-dot dot-orange"></span>
-                      <span className="timeline-vert-line"></span>
-                    </div>
-                    <span className="timeline-timestamp">00:10.872</span>
-                    <div className="timeline-action-icon">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="2" y1="12" x2="22" y2="12" />
-                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                      </svg>
-                    </div>
-                    <div className="timeline-details-col">
-                      <div className="timeline-title-line">
-                        <span className="timeline-event-name">Network connection</span>
-                        <span className="timeline-event-extra">Establishes outbound HTTPS connection to a remote IP address.</span>
-                      </div>
-                      <span className="timeline-code-quote">185.199.110.133:443</span>
-                    </div>
-                    <div className="timeline-right-pill">
-                      <span className="badge-severity-medium">Medium</span>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chevron-icon">
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                    </div>
-                  </div>
-
-                  {/* Event 6 */}
-                  <div className="timeline-row-item">
-                    <div className="timeline-indicator-col">
-                      <span className="timeline-dot dot-red"></span>
-                    </div>
-                    <span className="timeline-timestamp">00:15.672</span>
-                    <div className="timeline-action-icon">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                        <polyline points="9 12 11 14 15 10" />
-                      </svg>
-                    </div>
-                    <div className="timeline-details-col">
-                      <div className="timeline-title-line">
-                        <span className="timeline-event-name">Privilege escalation attempt</span>
-                        <span className="timeline-event-extra">Attempts UAC bypass using eventvwr.exe technique.</span>
-                      </div>
-                      <span className="timeline-code-quote">"eventvwr.exe /s /n /u:C:\Users\WDAGUtilityAccount\AppData\Roaming\payload.dll"</span>
-                    </div>
-                    <div className="timeline-right-pill">
-                      <span className="badge-severity-high">High</span>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chevron-icon">
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
 
@@ -914,76 +1854,39 @@ const Dashboard = ({
                   </div>
 
                   <div className="notable-behaviors-table-wrap">
-                    <table className="notable-behaviors-table">
-                      <thead>
-                        <tr>
-                          <th>Behavior</th>
-                          <th>Evidence</th>
-                          <th>Severity</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td>
-                            <div className="notable-behavior-cell">
-                              <span className="notable-name-strong">Persistence</span>
-                              <span className="notable-sub-text">Run key created for svchost</span>
-                            </div>
-                          </td>
-                          <td className="notable-evidence-cell">
-                            HKCU\Software\Microsoft\Windows\CurrentVersion\Run
-                          </td>
-                          <td className="notable-sev-cell">
-                            <span className="badge-severity-high">High</span>
-                          </td>
-                        </tr>
-
-                        <tr>
-                          <td>
-                            <div className="notable-behavior-cell">
-                              <span className="notable-name-strong">Command execution</span>
-                              <span className="notable-sub-text">Encoded PowerShell command</span>
-                            </div>
-                          </td>
-                          <td className="notable-evidence-cell">
-                            powershell.exe -EncodedCommand ...
-                          </td>
-                          <td className="notable-sev-cell">
-                            <span className="badge-severity-high">High</span>
-                          </td>
-                        </tr>
-
-                        <tr>
-                          <td>
-                            <div className="notable-behavior-cell">
-                              <span className="notable-name-strong">File drop</span>
-                              <span className="notable-sub-text">Writes payload.dll to disk</span>
-                            </div>
-                          </td>
-                          <td className="notable-evidence-cell">
-                            C:\...\AppData\Roaming\svchost\payload.dll
-                          </td>
-                          <td className="notable-sev-cell">
-                            <span className="badge-severity-high">High</span>
-                          </td>
-                        </tr>
-
-                        <tr>
-                          <td>
-                            <div className="notable-behavior-cell">
-                              <span className="notable-name-strong">Defense evasion</span>
-                              <span className="notable-sub-text">Disables Windows Defender</span>
-                            </div>
-                          </td>
-                          <td className="notable-evidence-cell">
-                            powershell.exe Set-MpPreference ...
-                          </td>
-                          <td className="notable-sev-cell">
-                            <span className="badge-severity-medium">Medium</span>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+                    {notableBehaviors.length > 0 ? (
+                      <table className="notable-behaviors-table">
+                        <thead>
+                          <tr>
+                            <th>Behavior</th>
+                            <th>Evidence</th>
+                            <th>Severity</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {notableBehaviors.map((item, idx) => (
+                            <tr key={idx}>
+                              <td>
+                                <div className="notable-behavior-cell">
+                                  <span className="notable-name-strong">{item.name}</span>
+                                  <span className="notable-sub-text">{item.sub}</span>
+                                </div>
+                              </td>
+                              <td className="notable-evidence-cell">
+                                {item.evidence}
+                              </td>
+                              <td className="notable-sev-cell">
+                                <span className={item.badgeClass}>{item.severity}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#727a85', fontSize: '0.86rem' }}>
+                        No notable threat behaviors identified.
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1006,50 +1909,27 @@ const Dashboard = ({
                   </div>
 
                   <div className="behavior-categories-list">
-                    {/* Execution */}
-                    <div className="category-bar-row">
-                      <span className="category-name">Execution</span>
-                      <div className="category-track">
-                        <div className="category-fill fill-red" style={{ width: '85%' }}></div>
+                    {displayBehaviorCategories.length > 0 ? (
+                      displayBehaviorCategories.map((cat, idx) => {
+                        const pct = Math.max(8, Math.min(100, Math.round((cat.count / maxCategoryCount) * 100)))
+                        return (
+                          <div className="category-bar-row" key={idx}>
+                            <span className="category-name">{cat.name}</span>
+                            <div className="category-track">
+                              <div
+                                className={`category-fill ${cat.colorClass}`}
+                                style={{ width: `${pct}%` }}
+                              ></div>
+                            </div>
+                            <span className="category-count">{cat.count}</span>
+                          </div>
+                        )
+                      })
+                    ) : (
+                      <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#727a85', fontSize: '0.86rem' }}>
+                        No behavioral activity categories recorded.
                       </div>
-                      <span className="category-count">12</span>
-                    </div>
-
-                    {/* Persistence */}
-                    <div className="category-bar-row">
-                      <span className="category-name">Persistence</span>
-                      <div className="category-track">
-                        <div className="category-fill fill-orange" style={{ width: '42%' }}></div>
-                      </div>
-                      <span className="category-count">5</span>
-                    </div>
-
-                    {/* Defense Evasion */}
-                    <div className="category-bar-row">
-                      <span className="category-name">Defense Evasion</span>
-                      <div className="category-track">
-                        <div className="category-fill fill-orange" style={{ width: '35%' }}></div>
-                      </div>
-                      <span className="category-count">4</span>
-                    </div>
-
-                    {/* Discovery */}
-                    <div className="category-bar-row">
-                      <span className="category-name">Discovery</span>
-                      <div className="category-track">
-                        <div className="category-fill fill-orange" style={{ width: '25%' }}></div>
-                      </div>
-                      <span className="category-count">3</span>
-                    </div>
-
-                    {/* Command & Control */}
-                    <div className="category-bar-row">
-                      <span className="category-name">Command &amp; Control</span>
-                      <div className="category-track">
-                        <div className="category-fill fill-orange" style={{ width: '35%' }}></div>
-                      </div>
-                      <span className="category-count">4</span>
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1090,301 +1970,242 @@ const Dashboard = ({
                         type="text"
                         placeholder="Search processes..."
                         className="process-search-input"
+                        value={processSearchQuery}
+                        onChange={(e) => setProcessSearchQuery(e.target.value)}
                       />
                     </div>
 
                     {/* Filter All Processes */}
-                    <div className="process-filter-dropdown">
-                      <span>All Processes</span>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
+                    <div className="process-filter-dropdown-wrapper">
+                      <div
+                        className="process-filter-dropdown"
+                        onClick={() => setIsProcessFilterOpen(!isProcessFilterOpen)}
+                      >
+                        <span>{processFilter}</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </div>
+
+                      {isProcessFilterOpen && (
+                        <div className="process-dropdown-menu">
+                          {['All Processes', 'High / Suspicious Risk', 'Root Processes', 'Child Processes'].map((filterOpt) => (
+                            <button
+                              key={filterOpt}
+                              type="button"
+                              className={`dropdown-item-btn ${processFilter === filterOpt ? 'selected' : ''}`}
+                              onClick={() => {
+                                setProcessFilter(filterOpt)
+                                setIsProcessFilterOpen(false)
+                              }}
+                            >
+                              {filterOpt}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
-                    {/* Expand All */}
-                    <button type="button" className="btn-expand-all">
+                    {/* Expand / Show All */}
+                    <button
+                      type="button"
+                      className="btn-expand-all"
+                      onClick={() => {
+                        setProcessSearchQuery('')
+                        setProcessFilter('All Processes')
+                      }}
+                      title="Reset filters and show all processes"
+                    >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="15 3 21 3 21 9" />
                         <polyline points="9 21 3 21 3 15" />
                         <line x1="21" y1="3" x2="14" y2="10" />
                         <line x1="3" y1="21" x2="10" y2="14" />
                       </svg>
-                      <span>Expand All</span>
+                      <span>Show All</span>
                     </button>
                   </div>
                 </div>
 
                 {/* Process Tree Data Table */}
                 <div className="process-table-wrapper">
-                  <table className="process-tree-table">
-                    <thead>
-                      <tr>
-                        <th>Process Name</th>
-                        <th>PID</th>
-                        <th>PPID</th>
-                        <th>Image Path</th>
-                        <th>Command Line</th>
-                        <th>Start Time</th>
-                        <th>Status</th>
-                        <th>Risk</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {/* 1. sample_malware.exe */}
-                      <tr className="row-selected-process">
-                        <td>
-                          <div className="proc-tree-name-cell level-0">
-                            <span className="tree-arrow">▼</span>
-                            <span className="proc-icon">📁</span>
-                            <span className="proc-name-text">sample_malware.exe</span>
-                          </div>
-                        </td>
-                        <td>4320</td>
-                        <td>4008</td>
-                        <td className="proc-path-text">C:\Users\WDAGUtilityAccount\Desktop\sample_malware.exe</td>
-                        <td className="proc-cmd-text">"sample_malware.exe"</td>
-                        <td>14:22:18</td>
-                        <td><span className="badge-status-running">Running</span></td>
-                        <td><span className="badge-severity-high">High</span></td>
-                      </tr>
-
-                      {/* 2. cmd.exe */}
-                      <tr>
-                        <td>
-                          <div className="proc-tree-name-cell level-1">
-                            <span className="tree-arrow">▼</span>
-                            <span className="proc-icon">📁</span>
-                            <span className="proc-name-text">cmd.exe</span>
-                          </div>
-                        </td>
-                        <td>5184</td>
-                        <td>4320</td>
-                        <td className="proc-path-text">C:\Windows\System32\cmd.exe</td>
-                        <td className="proc-cmd-text">"cmd.exe /c ..."</td>
-                        <td>14:22:20</td>
-                        <td><span className="badge-status-exited">Exited</span></td>
-                        <td><span className="badge-severity-high">High</span></td>
-                      </tr>
-
-                      {/* 3. powershell.exe */}
-                      <tr>
-                        <td>
-                          <div className="proc-tree-name-cell level-2">
-                            <span className="tree-arrow">▼</span>
-                            <span className="proc-icon">📁</span>
-                            <span className="proc-name-text">powershell.exe</span>
-                          </div>
-                        </td>
-                        <td>7260</td>
-                        <td>5184</td>
-                        <td className="proc-path-text">C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe</td>
-                        <td className="proc-cmd-text">powershell.exe -Enc...</td>
-                        <td>14:22:21</td>
-                        <td><span className="badge-status-exited">Exited</span></td>
-                        <td><span className="badge-severity-high">High</span></td>
-                      </tr>
-
-                      {/* 4. rundll32.exe */}
-                      <tr>
-                        <td>
-                          <div className="proc-tree-name-cell level-3">
-                            <span className="tree-arrow">▼</span>
-                            <span className="proc-icon">📁</span>
-                            <span className="proc-name-text">rundll32.exe</span>
-                          </div>
-                        </td>
-                        <td>8912</td>
-                        <td>7260</td>
-                        <td className="proc-path-text">C:\Windows\System32\rundll32.exe</td>
-                        <td className="proc-cmd-text">rundll32.exe C:\...\pa...</td>
-                        <td>14:22:23</td>
-                        <td><span className="badge-status-exited">Exited</span></td>
-                        <td><span className="badge-severity-suspicious">Suspicious</span></td>
-                      </tr>
-
-                      {/* 5. regsvr32.exe */}
-                      <tr>
-                        <td>
-                          <div className="proc-tree-name-cell level-4">
-                            <span className="proc-icon">📄</span>
-                            <span className="proc-name-text">regsvr32.exe</span>
-                          </div>
-                        </td>
-                        <td>9012</td>
-                        <td>8912</td>
-                        <td className="proc-path-text">C:\Windows\System32\regsvr32.exe</td>
-                        <td className="proc-cmd-text">regsvr32.exe /s C:\...</td>
-                        <td>14:22:24</td>
-                        <td><span className="badge-status-exited">Exited</span></td>
-                        <td><span className="badge-severity-suspicious">Suspicious</span></td>
-                      </tr>
-
-                      {/* 6. svchost.exe */}
-                      <tr>
-                        <td>
-                          <div className="proc-tree-name-cell level-1">
-                            <span className="tree-arrow">▼</span>
-                            <span className="proc-icon">📁</span>
-                            <span className="proc-name-text">svchost.exe</span>
-                          </div>
-                        </td>
-                        <td>6540</td>
-                        <td>4320</td>
-                        <td className="proc-path-text">C:\Windows\System32\svchost.exe</td>
-                        <td className="proc-cmd-text">svchost.exe -k netsvcs</td>
-                        <td>14:22:25</td>
-                        <td><span className="badge-status-running">Running</span></td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-
-                      {/* 7. conhost.exe */}
-                      <tr>
-                        <td>
-                          <div className="proc-tree-name-cell level-2">
-                            <span className="proc-icon">📄</span>
-                            <span className="proc-name-text">conhost.exe</span>
-                          </div>
-                        </td>
-                        <td>7176</td>
-                        <td>6540</td>
-                        <td className="proc-path-text">C:\Windows\System32\conhost.exe</td>
-                        <td className="proc-cmd-text">conhost.exe 0x4</td>
-                        <td>14:22:25</td>
-                        <td><span className="badge-status-running">Running</span></td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-
-                      {/* 8. wscript.exe */}
-                      <tr>
-                        <td>
-                          <div className="proc-tree-name-cell level-1">
-                            <span className="tree-arrow">▼</span>
-                            <span className="proc-icon">📁</span>
-                            <span className="proc-name-text">wscript.exe</span>
-                          </div>
-                        </td>
-                        <td>8124</td>
-                        <td>4320</td>
-                        <td className="proc-path-text">C:\Windows\System32\wscript.exe</td>
-                        <td className="proc-cmd-text">wscript.exe C:\...\sc...</td>
-                        <td>14:22:26</td>
-                        <td><span className="badge-status-exited">Exited</span></td>
-                        <td><span className="badge-severity-suspicious">Suspicious</span></td>
-                      </tr>
-
-                      {/* 9. tasklist.exe */}
-                      <tr>
-                        <td>
-                          <div className="proc-tree-name-cell level-1">
-                            <span className="proc-icon">📄</span>
-                            <span className="proc-name-text">tasklist.exe</span>
-                          </div>
-                        </td>
-                        <td>9340</td>
-                        <td>4320</td>
-                        <td className="proc-path-text">C:\Windows\System32\tasklist.exe</td>
-                        <td className="proc-cmd-text">tasklist.exe</td>
-                        <td>14:22:28</td>
-                        <td><span className="badge-status-exited">Exited</span></td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-                    </tbody>
-                  </table>
+                  {filteredProcesses.length > 0 ? (
+                    <table className="process-tree-table">
+                      <thead>
+                        <tr>
+                          <th>Process Name</th>
+                          <th>PID</th>
+                          <th>PPID</th>
+                          <th>Image Path</th>
+                          <th>Command Line</th>
+                          <th>Start Time</th>
+                          <th>Status</th>
+                          <th>Risk</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredProcesses.map((proc) => {
+                          const isSelected = activeSelectedProcess.PID === proc.PID
+                          const indentClass = `level-${Math.min(proc.level, 4)}`
+                          return (
+                            <tr
+                              key={proc.PID}
+                              className={isSelected ? 'row-selected-process' : ''}
+                              onClick={() => setSelectedProcessPid(proc.PID)}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              <td>
+                                <div className={`proc-tree-name-cell ${indentClass}`}>
+                                  <span className="tree-arrow">
+                                    {proc.hasChildren ? '▼' : '•'}
+                                  </span>
+                                  <span className="proc-icon">
+                                    {proc.hasChildren ? '📁' : '📄'}
+                                  </span>
+                                  <span className="proc-name-text">{proc.name}</span>
+                                </div>
+                              </td>
+                              <td>{proc.PID}</td>
+                              <td>{proc.PPID}</td>
+                              <td className="proc-path-text" title={proc.Image}>
+                                {proc.Image}
+                              </td>
+                              <td className="proc-cmd-text" title={proc.Command}>
+                                {proc.Command}
+                              </td>
+                              <td>{proc.Time ? proc.Time.split('T').pop().substring(0, 8) : '-'}</td>
+                              <td>
+                                <span className={proc.statusBadgeClass}>
+                                  {proc.status}
+                                </span>
+                              </td>
+                              <td>
+                                <span className={proc.riskBadgeClass}>
+                                  {proc.risk}
+                                </span>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div style={{ padding: '3.5rem 1rem', textAlign: 'center', color: '#727a85', fontSize: '0.88rem' }}>
+                      No process execution telemetry recorded.
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* 2. Process Inspection Bottom Split Card */}
-              <div className="dashboard-card process-detail-split-card">
-                {/* Left Detail Column */}
-                <div className="proc-detail-left">
-                  <div className="proc-detail-heading-row">
-                    <div className="proc-detail-file-icon">
-                      <svg width="22" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                        <polyline points="14 2 14 8 20 8" />
-                      </svg>
-                    </div>
-                    <span className="proc-detail-title">sample_malware.exe</span>
-                    <span className="proc-detail-pid-tag">(PID 4320)</span>
-                    <span className="badge-malicious-pill">Malicious</span>
+              {/* 2. Process Inspection Card */}
+              <div className="dashboard-card proc-inspection-card">
+                <div className="proc-detail-heading-row">
+                  <div className="proc-detail-file-icon">
+                    <svg width="22" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
                   </div>
+                  <span className="proc-detail-title">{activeSelectedProcess.name}</span>
+                  <span className="proc-detail-pid-tag">(PID {activeSelectedProcess.PID})</span>
+                  <span className={activeSelectedProcess.risk === 'High' ? 'badge-malicious-pill' : activeSelectedProcess.risk === 'Suspicious' ? 'badge-suspicious-pill' : 'badge-clean-pill'}>
+                    {activeSelectedProcess.risk === 'High' ? 'Malicious' : activeSelectedProcess.risk === 'Suspicious' ? 'Suspicious' : 'Clean'}
+                  </span>
+                </div>
 
-                  <div className="proc-metadata-kv-list">
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">Image Path</span>
-                      <span className="proc-kv-val mono-path">C:\Users\WDAGUtilityAccount\Desktop\sample_malware.exe</span>
-                    </div>
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">Command Line</span>
-                      <span className="proc-kv-val mono-path">"sample_malware.exe"</span>
-                    </div>
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">Parent Process</span>
-                      <span className="proc-kv-val">explorer.exe (PID 4008)</span>
-                    </div>
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">Start Time</span>
-                      <span className="proc-kv-val">Oct 11, 2026, 14:22:18</span>
-                    </div>
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">Status</span>
-                      <span className="proc-kv-val">Running</span>
-                    </div>
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">Integrity Level</span>
-                      <span className="proc-kv-val">Medium</span>
-                    </div>
+                <div className="proc-metadata-kv-list">
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">Image Path</span>
+                    <span className="proc-kv-val mono-path">{activeSelectedProcess.Image || 'Not available'}</span>
+                  </div>
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">Command Line</span>
+                    <span className="proc-kv-val mono-path">{activeSelectedProcess.Command || 'Not available'}</span>
+                  </div>
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">Parent Process</span>
+                    <span className="proc-kv-val">{activeSelectedProcess.parentName || `PID ${activeSelectedProcess.PPID}`}</span>
+                  </div>
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">Start Time</span>
+                    <span className="proc-kv-val">{activeSelectedProcess.Time || sample.submitted || 'Not available'}</span>
+                  </div>
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">Status</span>
+                    <span className="proc-kv-val">{activeSelectedProcess.status || 'Exited'}</span>
+                  </div>
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">Integrity Level</span>
+                    <span className="proc-kv-val">{activeSelectedProcess.risk === 'High' ? 'High' : 'Medium'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Process Characteristics Card */}
+              <div className="dashboard-card proc-chars-card">
+                <div className="proc-chars-header">
+                  <span className="proc-chars-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                  </span>
+                  <div className="title-desc-wrap">
+                    <span className="proc-chars-title">Process Characteristics</span>
+                    <span className="card-desc-sub">File properties, signature verification, and hash identifiers.</span>
                   </div>
                 </div>
 
-                {/* Right Process Characteristics Column */}
-                <div className="proc-detail-right">
-                  <div className="proc-chars-header">
-                    <span className="proc-chars-icon">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="3" />
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                      </svg>
-                    </span>
-                    <span className="proc-chars-title">Process Characteristics</span>
+                <div className="proc-chars-kv-list">
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">Signed</span>
+                    <span className="proc-kv-val signed-no">No</span>
                   </div>
-
-                  <div className="proc-chars-kv-list">
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">Signed</span>
-                      <span className="proc-kv-val signed-no">No</span>
-                    </div>
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">Publisher</span>
-                      <span className="proc-kv-val">N/A</span>
-                    </div>
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">File Version</span>
-                      <span className="proc-kv-val">N/A</span>
-                    </div>
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">Subsystem</span>
-                      <span className="proc-kv-val">Windows GUI</span>
-                    </div>
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">Bitness</span>
-                      <span className="proc-kv-val">64-bit</span>
-                    </div>
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">MD5</span>
-                      <span className="proc-kv-val mono-hash">e4d9a7c1b8f3e6d0a9c2b5f7e1d6c4a8</span>
-                    </div>
-                    <div className="proc-kv-row">
-                      <span className="proc-kv-key">SHA256</span>
-                      <div className="proc-sha256-wrap">
-                        <span className="proc-kv-val mono-hash truncate-hash">37a8e5c6b0d3e9f72ca9d6e1f78b3c4d56e7f906a1b2c3d4e5f...</span>
-                        <button type="button" className="btn-copy-hash" title="Copy SHA256">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                          </svg>
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">Publisher</span>
+                    <span className="proc-kv-val">Not available</span>
+                  </div>
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">File Version</span>
+                    <span className="proc-kv-val">Not available</span>
+                  </div>
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">Subsystem</span>
+                    <span className="proc-kv-val">{sample.fileType || 'Windows GUI'}</span>
+                  </div>
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">Bitness</span>
+                    <span className="proc-kv-val">{sample.fileType?.includes('32') ? '32-bit' : '64-bit'}</span>
+                  </div>
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">MD5</span>
+                    <span className="proc-kv-val mono-hash">Not available</span>
+                  </div>
+                  <div className="proc-kv-row">
+                    <span className="proc-kv-key">SHA256</span>
+                    <div className="proc-sha256-wrap">
+                      <span className="proc-kv-val mono-hash truncate-hash" title={sample.sha256}>
+                        {sample.sha256}
+                      </span>
+                      {sample.sha256 && sample.sha256 !== 'Not available' && (
+                        <button
+                          type="button"
+                          className="btn-copy-hash"
+                          title={copiedHash ? 'Copied!' : 'Copy SHA256'}
+                          onClick={() => handleCopyHash(sample.sha256)}
+                        >
+                          {copiedHash ? (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          ) : (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          )}
                         </button>
-                      </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1424,14 +2245,43 @@ const Dashboard = ({
                         type="text"
                         placeholder="Search files or paths..."
                         className="fs-search-input"
+                        value={fsSearchQuery}
+                        onChange={(e) => {
+                          setFsSearchQuery(e.target.value)
+                          setFsPage(1)
+                        }}
                       />
                     </div>
 
-                    <div className="fs-action-filter-dropdown">
-                      <span>All Actions</span>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
+                    <div className="fs-action-filter-dropdown-wrap" style={{ position: 'relative' }}>
+                      <div
+                        className="fs-action-filter-dropdown"
+                        onClick={() => setIsFsFilterOpen(!isFsFilterOpen)}
+                      >
+                        <span>{fsActionFilter}</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </div>
+
+                      {isFsFilterOpen && (
+                        <div className="process-dropdown-menu" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 25 }}>
+                          {['All Actions', 'Created', 'Modified', 'Deleted', 'Read'].map((act) => (
+                            <button
+                              key={act}
+                              type="button"
+                              className={`dropdown-item-btn ${fsActionFilter === act ? 'selected' : ''}`}
+                              onClick={() => {
+                                setFsActionFilter(act)
+                                setIsFsFilterOpen(false)
+                                setFsPage(1)
+                              }}
+                            >
+                              {act}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Dot Legend */}
@@ -1465,202 +2315,77 @@ const Dashboard = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {/* Row 1 */}
-                      <tr>
-                        <td>
-                          <div className="fs-path-cell">
-                            <span className="fs-file-icon fs-icon-folder">📁</span>
-                            <span className="fs-path-text">C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\</span>
-                          </div>
-                        </td>
-                        <td><span className="badge-fs-created">Created</span></td>
-                        <td className="fs-dim-text">-</td>
-                        <td>14:22:01</td>
-                        <td className="fs-chevron-cell">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="9 18 15 12 9 6" />
-                          </svg>
-                        </td>
-                      </tr>
-
-                      {/* Row 2 - Selected payload.dll */}
-                      <tr className="row-selected-fs">
-                        <td>
-                          <div className="fs-path-cell">
-                            <span className="fs-file-icon fs-icon-doc">📄</span>
-                            <span className="fs-path-text font-medium">C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\payload.dll</span>
-                          </div>
-                        </td>
-                        <td><span className="badge-fs-created">Created</span></td>
-                        <td>243 KB</td>
-                        <td>14:22:02</td>
-                        <td className="fs-chevron-cell">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="9 18 15 12 9 6" />
-                          </svg>
-                        </td>
-                      </tr>
-
-                      {/* Row 3 */}
-                      <tr>
-                        <td>
-                          <div className="fs-path-cell">
-                            <span className="fs-file-icon fs-icon-doc">📄</span>
-                            <span className="fs-path-text">C:\Users\WDAGUtilityAccount\AppData\Local\Temp\config.dat</span>
-                          </div>
-                        </td>
-                        <td><span className="badge-fs-modified">Modified</span></td>
-                        <td>4 KB</td>
-                        <td>14:22:05</td>
-                        <td className="fs-chevron-cell">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="9 18 15 12 9 6" />
-                          </svg>
-                        </td>
-                      </tr>
-
-                      {/* Row 4 */}
-                      <tr>
-                        <td>
-                          <div className="fs-path-cell">
-                            <span className="fs-file-icon fs-icon-doc">📄</span>
-                            <span className="fs-path-text">C:\Windows\System32\drivers\etc\hosts</span>
-                          </div>
-                        </td>
-                        <td><span className="badge-fs-modified">Modified</span></td>
-                        <td>824 B</td>
-                        <td>14:22:10</td>
-                        <td className="fs-chevron-cell">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="9 18 15 12 9 6" />
-                          </svg>
-                        </td>
-                      </tr>
-
-                      {/* Row 5 */}
-                      <tr>
-                        <td>
-                          <div className="fs-path-cell">
-                            <span className="fs-file-icon fs-icon-doc">📄</span>
-                            <span className="fs-path-text">C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\log.txt</span>
-                          </div>
-                        </td>
-                        <td><span className="badge-fs-created">Created</span></td>
-                        <td>12 KB</td>
-                        <td>14:22:11</td>
-                        <td className="fs-chevron-cell">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="9 18 15 12 9 6" />
-                          </svg>
-                        </td>
-                      </tr>
-
-                      {/* Row 6 */}
-                      <tr>
-                        <td>
-                          <div className="fs-path-cell">
-                            <span className="fs-file-icon fs-icon-doc">📄</span>
-                            <span className="fs-path-text">C:\ProgramData\Microsoft\Windows\Start Menu\Programs\startup.ps1</span>
-                          </div>
-                        </td>
-                        <td><span className="badge-fs-created">Created</span></td>
-                        <td>1.2 KB</td>
-                        <td>14:22:14</td>
-                        <td className="fs-chevron-cell">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="9 18 15 12 9 6" />
-                          </svg>
-                        </td>
-                      </tr>
-
-                      {/* Row 7 */}
-                      <tr>
-                        <td>
-                          <div className="fs-path-cell">
-                            <span className="fs-file-icon fs-icon-doc">📄</span>
-                            <span className="fs-path-text">C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\temp.tmp</span>
-                          </div>
-                        </td>
-                        <td><span className="badge-fs-deleted">Deleted</span></td>
-                        <td>0 B</td>
-                        <td>14:22:18</td>
-                        <td className="fs-chevron-cell">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="9 18 15 12 9 6" />
-                          </svg>
-                        </td>
-                      </tr>
-
-                      {/* Row 8 */}
-                      <tr>
-                        <td>
-                          <div className="fs-path-cell">
-                            <span className="fs-file-icon fs-icon-folder">📁</span>
-                            <span className="fs-path-text">C:\Users\WDAGUtilityAccount\AppData\Local\Microsoft\Windows\INetCache\</span>
-                          </div>
-                        </td>
-                        <td><span className="badge-fs-created">Created</span></td>
-                        <td className="fs-dim-text">-</td>
-                        <td>14:22:21</td>
-                        <td className="fs-chevron-cell">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="9 18 15 12 9 6" />
-                          </svg>
-                        </td>
-                      </tr>
-
-                      {/* Row 9 */}
-                      <tr>
-                        <td>
-                          <div className="fs-path-cell">
-                            <span className="fs-file-icon fs-icon-doc">📄</span>
-                            <span className="fs-path-text">C:\Users\WDAGUtilityAccount\AppData\Local\Microsoft\Windows\INetCache\ie\abc.tmp</span>
-                          </div>
-                        </td>
-                        <td><span className="badge-fs-created">Created</span></td>
-                        <td>56 KB</td>
-                        <td>14:22:23</td>
-                        <td className="fs-chevron-cell">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="9 18 15 12 9 6" />
-                          </svg>
-                        </td>
-                      </tr>
-
-                      {/* Row 10 */}
-                      <tr>
-                        <td>
-                          <div className="fs-path-cell">
-                            <span className="fs-file-icon fs-icon-doc">📄</span>
-                            <span className="fs-path-text">C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\config.json</span>
-                          </div>
-                        </td>
-                        <td><span className="badge-fs-modified">Modified</span></td>
-                        <td>2 KB</td>
-                        <td>14:22:25</td>
-                        <td className="fs-chevron-cell">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="9 18 15 12 9 6" />
-                          </svg>
-                        </td>
-                      </tr>
+                      {paginatedFiles.length > 0 ? (
+                        paginatedFiles.map((file) => (
+                          <tr
+                            key={file.id}
+                            className={activeSelectedFile?.id === file.id ? 'row-selected-fs' : ''}
+                            onClick={() => setSelectedFileIndex(file.id)}
+                          >
+                            <td>
+                              <div className="fs-path-cell">
+                                <span className={`fs-file-icon ${file.isFolder ? 'fs-icon-folder' : 'fs-icon-doc'}`}>
+                                  {file.isFolder ? '📁' : '📄'}
+                                </span>
+                                <span className={`fs-path-text ${activeSelectedFile?.id === file.id ? 'font-medium' : ''}`}>
+                                  {file.path}
+                                </span>
+                              </div>
+                            </td>
+                            <td><span className={file.badgeClass}>{file.action}</span></td>
+                            <td className={file.size === '-' ? 'fs-dim-text' : ''}>{file.size}</td>
+                            <td>{file.time}</td>
+                            <td className="fs-chevron-cell">
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="9 18 15 12 9 6" />
+                              </svg>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="5" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#6B7280' }}>
+                            <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.25rem' }}>No file system activity found</p>
+                            <p style={{ fontSize: '0.8rem' }}>No file operations were recorded during this execution session.</p>
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
 
                 {/* Pagination footer */}
                 <div className="fs-pagination-footer">
-                  <span className="fs-pagination-info">Showing 1 to 10 of 28 files</span>
+                  <span className="fs-pagination-info">
+                    Showing {filteredFiles.length === 0 ? 0 : (fsPage - 1) * 10 + 1} to {Math.min(fsPage * 10, filteredFiles.length)} of {filteredFiles.length} files
+                  </span>
                   <div className="fs-pagination-controls">
-                    <button type="button" className="btn-page-arrow" disabled>
+                    <button
+                      type="button"
+                      className="btn-page-arrow"
+                      disabled={fsPage <= 1}
+                      onClick={() => setFsPage((p) => Math.max(1, p - 1))}
+                    >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="15 18 9 12 15 6" />
                       </svg>
                     </button>
-                    <button type="button" className="btn-page-number active">1</button>
-                    <button type="button" className="btn-page-number">2</button>
-                    <button type="button" className="btn-page-number">3</button>
-                    <button type="button" className="btn-page-arrow">
+                    {Array.from({ length: fsTotalPages }, (_, i) => i + 1).slice(0, 5).map((pageNo) => (
+                      <button
+                        key={pageNo}
+                        type="button"
+                        className={`btn-page-number ${fsPage === pageNo ? 'active' : ''}`}
+                        onClick={() => setFsPage(pageNo)}
+                      >
+                        {pageNo}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="btn-page-arrow"
+                      disabled={fsPage >= fsTotalPages}
+                      onClick={() => setFsPage((p) => Math.min(fsTotalPages, p + 1))}
+                    >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="9 18 15 12 9 6" />
                       </svg>
@@ -1671,108 +2396,129 @@ const Dashboard = ({
 
               {/* Right Column: File Details Inspection Panel */}
               <div className="dashboard-card fs-detail-panel">
-                <div className="fs-detail-header">
-                  <div className="fs-detail-file-title-group">
-                    <div className="fs-detail-icon">
-                      <svg width="22" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                        <polyline points="14 2 14 8 20 8" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h4 className="fs-detail-filename">payload.dll</h4>
-                      <p className="fs-detail-filepath">C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\payload.dll</p>
-                    </div>
-                  </div>
-                  <button type="button" className="btn-close-fs-detail" title="Close details">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
-                </div>
-
-                {/* 3 mini stats columns */}
-                <div className="fs-detail-stats-row">
-                  <div className="fs-detail-stat-col">
-                    <span className="fs-stat-label">Action</span>
-                    <div><span className="badge-fs-created">Created</span></div>
-                  </div>
-                  <div className="fs-detail-stat-col">
-                    <span className="fs-stat-label">Size</span>
-                    <span className="fs-stat-val">243 KB</span>
-                  </div>
-                  <div className="fs-detail-stat-col">
-                    <span className="fs-stat-label">Timestamp</span>
-                    <span className="fs-stat-val">Oct 11, 2026, 14:22:02</span>
-                  </div>
-                </div>
-
-                {/* Horizontal 2-Column Body */}
-                <div className="fs-detail-horizontal-body">
-                  {/* Left Column: File Information */}
-                  <div className="fs-detail-body-left">
-                    <h5 className="fs-section-subtitle">File Information</h5>
-                    <div className="fs-kv-list">
-                      <div className="fs-kv-row">
-                        <span className="fs-kv-key">Type</span>
-                        <span className="fs-kv-val">Dynamic Link Library (DLL)</span>
-                      </div>
-                      <div className="fs-kv-row">
-                        <span className="fs-kv-key">SHA256</span>
-                        <div className="fs-hash-copy-wrap">
-                          <span className="fs-kv-val mono-hash truncate-hash">c6b2d9f4a1e8c3d7b0f5a9e2c4d6a7f1b8e3c0d9a2f4e6b7c1d3e5f...</span>
-                          <button type="button" className="btn-copy-hash" title="Copy SHA256">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
-                          </button>
+                {activeSelectedFile ? (
+                  <>
+                    <div className="fs-detail-header">
+                      <div className="fs-detail-file-title-group">
+                        <div className="fs-detail-icon">
+                          <svg width="22" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                            <polyline points="14 2 14 8 20 8" />
+                          </svg>
+                        </div>
+                        <div>
+                          <h4 className="fs-detail-filename">{activeSelectedFile.fileName}</h4>
+                          <p className="fs-detail-filepath">{activeSelectedFile.path}</p>
                         </div>
                       </div>
-                      <div className="fs-kv-row">
-                        <span className="fs-kv-key">MD5</span>
-                        <div className="fs-hash-copy-wrap">
-                          <span className="fs-kv-val mono-hash truncate-hash">5f2a3c9d4e7b1a8c6d0e2f1a3b4c5d6e</span>
-                          <button type="button" className="btn-copy-hash" title="Copy MD5">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                      <div className="fs-kv-row">
-                        <span className="fs-kv-key">First Seen</span>
-                        <span className="fs-kv-val">Oct 11, 2026, 14:22:02</span>
-                      </div>
-                      <div className="fs-kv-row">
-                        <span className="fs-kv-key">Last Modified</span>
-                        <span className="fs-kv-val">Oct 11, 2026, 14:22:02</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right Column: Classification & YARA Matches */}
-                  <div className="fs-detail-body-right">
-                    {/* Classification */}
-                    <div className="fs-section-block fs-classification-row">
-                      <span className="fs-classification-label">Classification</span>
-                      <span className="badge-severity-suspicious">Suspicious</span>
-                    </div>
-
-                    {/* YARA Matches */}
-                    <div className="fs-section-block">
-                      <h5 className="fs-section-subtitle">YARA Matches</h5>
-                      <div className="fs-yara-pill-row">
-                        <span className="fs-yara-name">Generic_Malware_DLL</span>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="9 18 15 12 9 6" />
+                      <button
+                        type="button"
+                        className="btn-close-fs-detail"
+                        title="Close details"
+                        onClick={() => setSelectedFileIndex(null)}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
                         </svg>
+                      </button>
+                    </div>
+
+                    {/* 3 mini stats columns */}
+                    <div className="fs-detail-stats-row">
+                      <div className="fs-detail-stat-col">
+                        <span className="fs-stat-label">Action</span>
+                        <div><span className={activeSelectedFile.badgeClass}>{activeSelectedFile.action}</span></div>
+                      </div>
+                      <div className="fs-detail-stat-col">
+                        <span className="fs-stat-label">Size</span>
+                        <span className="fs-stat-val">{activeSelectedFile.size}</span>
+                      </div>
+                      <div className="fs-detail-stat-col">
+                        <span className="fs-stat-label">Timestamp</span>
+                        <span className="fs-stat-val">{activeSelectedFile.time}</span>
                       </div>
                     </div>
+
+                    {/* Horizontal 2-Column Body */}
+                    <div className="fs-detail-horizontal-body">
+                      {/* Left Column: File Information */}
+                      <div className="fs-detail-body-left">
+                        <h5 className="fs-section-subtitle">File Information</h5>
+                        <div className="fs-kv-list">
+                          <div className="fs-kv-row">
+                            <span className="fs-kv-key">Type</span>
+                            <span className="fs-kv-val">{activeSelectedFile.extType}</span>
+                          </div>
+                          <div className="fs-kv-row">
+                            <span className="fs-kv-key">SHA256</span>
+                            <div className="fs-hash-copy-wrap">
+                              <span className="fs-kv-val mono-hash truncate-hash" title={sample.sha256}>
+                                {sample.sha256 !== 'Not available' ? sample.sha256 : 'Not available'}
+                              </span>
+                              {sample.sha256 !== 'Not available' && (
+                                <button
+                                  type="button"
+                                  className="btn-copy-hash"
+                                  title="Copy SHA256"
+                                  onClick={() => handleCopyHash(sample.sha256)}
+                                >
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="fs-kv-row">
+                            <span className="fs-kv-key">MD5</span>
+                            <span className="fs-kv-val mono-hash">Not available</span>
+                          </div>
+                          <div className="fs-kv-row">
+                            <span className="fs-kv-key">Process</span>
+                            <span className="fs-kv-val">
+                              {activeSelectedFile.image ? `${activeSelectedFile.image} (PID ${activeSelectedFile.pid})` : 'Not available'}
+                            </span>
+                          </div>
+                          <div className="fs-kv-row">
+                            <span className="fs-kv-key">Activity Count</span>
+                            <span className="fs-kv-val">{activeSelectedFile.count} I/O event(s)</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Column: Classification & Indicators */}
+                      <div className="fs-detail-body-right">
+                        <div className="fs-section-block fs-classification-row">
+                          <span className="fs-classification-label">Classification</span>
+                          <span className={activeSelectedFile.isSuspicious ? 'badge-severity-suspicious' : 'badge-severity-low'}>
+                            {activeSelectedFile.isSuspicious ? 'Suspicious' : 'Normal'}
+                          </span>
+                        </div>
+
+                        <div className="fs-section-block">
+                          <h5 className="fs-section-subtitle">File Indicators</h5>
+                          {activeSelectedFile.isSuspicious ? (
+                            <div className="fs-yara-pill-row">
+                              <span className="fs-yara-name">Generic_Payload_Artifact</span>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="9 18 15 12 9 6" />
+                              </svg>
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: '0.8rem', color: '#6B7280' }}>No threat signatures matched</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '3.5rem 1rem', color: '#6B7280' }}>
+                    <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.25rem' }}>No file selected</p>
+                    <p style={{ fontSize: '0.8rem' }}>Click any row in the activity table to inspect file details.</p>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           )}
@@ -1792,7 +2538,7 @@ const Dashboard = ({
                   </div>
                   <div className="net-stat-info">
                     <span className="net-stat-label">Total Connections</span>
-                    <span className="net-stat-val">14</span>
+                    <span className="net-stat-val">{totalNetConnections}</span>
                   </div>
                 </div>
 
@@ -1808,7 +2554,7 @@ const Dashboard = ({
                   </div>
                   <div className="net-stat-info">
                     <span className="net-stat-label">Unique Domains</span>
-                    <span className="net-stat-val">6</span>
+                    <span className="net-stat-val">{uniqueNetDomains}</span>
                   </div>
                 </div>
 
@@ -1823,7 +2569,7 @@ const Dashboard = ({
                   </div>
                   <div className="net-stat-info">
                     <span className="net-stat-label">Unique IPs</span>
-                    <span className="net-stat-val">8</span>
+                    <span className="net-stat-val">{uniqueNetIps}</span>
                   </div>
                 </div>
 
@@ -1836,7 +2582,7 @@ const Dashboard = ({
                   </div>
                   <div className="net-stat-info">
                     <span className="net-stat-label">Data Sent</span>
-                    <span className="net-stat-val">1.2 MB</span>
+                    <span className="net-stat-val">{formatBytes(totalSentBytes)}</span>
                   </div>
                 </div>
 
@@ -1849,7 +2595,7 @@ const Dashboard = ({
                   </div>
                   <div className="net-stat-info">
                     <span className="net-stat-label">Data Received</span>
-                    <span className="net-stat-val">5.6 MB</span>
+                    <span className="net-stat-val">{formatBytes(totalRecvBytes)}</span>
                   </div>
                 </div>
               </div>
@@ -1885,14 +2631,43 @@ const Dashboard = ({
                           type="text"
                           placeholder="Search by domain, IP, or port..."
                           className="net-search-input"
+                          value={netSearchQuery}
+                          onChange={(e) => {
+                            setNetSearchQuery(e.target.value)
+                            setNetPage(1)
+                          }}
                         />
                       </div>
 
-                      <div className="net-filter-dropdown">
-                        <span>All Protocols</span>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="6 9 12 15 18 9" />
-                        </svg>
+                      <div className="net-filter-dropdown-wrap" style={{ position: 'relative' }}>
+                        <div
+                          className="net-filter-dropdown"
+                          onClick={() => setIsNetFilterOpen(!isNetFilterOpen)}
+                        >
+                          <span>{netProtocolFilter}</span>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
+                        </div>
+
+                        {isNetFilterOpen && (
+                          <div className="process-dropdown-menu" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 25 }}>
+                            {['All Protocols', 'TCP', 'UDP', 'HTTPS', 'HTTP', 'DNS'].map((proto) => (
+                              <button
+                                key={proto}
+                                type="button"
+                                className={`dropdown-item-btn ${netProtocolFilter === proto ? 'selected' : ''}`}
+                                onClick={() => {
+                                  setNetProtocolFilter(proto)
+                                  setIsNetFilterOpen(false)
+                                  setNetPage(1)
+                                }}
+                              >
+                                {proto}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1913,161 +2688,71 @@ const Dashboard = ({
                         </tr>
                       </thead>
                       <tbody>
-                        {/* 1 */}
-                        <tr>
-                          <td>14:22:10</td>
-                          <td>
-                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
-                          </td>
-                          <td className="net-target-cell font-semibold">api.example.com</td>
-                          <td>443</td>
-                          <td>HTTPS</td>
-                          <td>24 KB</td>
-                          <td>312 KB</td>
-                          <td><span className="badge-rep-malicious">Malicious</span></td>
-                        </tr>
-
-                        {/* 2 */}
-                        <tr>
-                          <td>14:22:12</td>
-                          <td>
-                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
-                          </td>
-                          <td className="net-target-cell mono-font">185.199.110.43</td>
-                          <td>80</td>
-                          <td>HTTP</td>
-                          <td>4 KB</td>
-                          <td>0 B</td>
-                          <td><span className="badge-rep-suspicious">Suspicious</span></td>
-                        </tr>
-
-                        {/* 3 */}
-                        <tr>
-                          <td>14:22:14</td>
-                          <td>
-                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
-                          </td>
-                          <td className="net-target-cell font-semibold">cdn.example.net</td>
-                          <td>443</td>
-                          <td>HTTPS</td>
-                          <td>8 KB</td>
-                          <td>1.1 MB</td>
-                          <td><span className="badge-rep-suspicious">Suspicious</span></td>
-                        </tr>
-
-                        {/* 4 */}
-                        <tr>
-                          <td>14:22:18</td>
-                          <td>
-                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
-                          </td>
-                          <td className="net-target-cell mono-font">91.213.21.34</td>
-                          <td>53</td>
-                          <td>DNS</td>
-                          <td>512 B</td>
-                          <td>1.2 KB</td>
-                          <td><span className="badge-rep-unknown">Unknown</span></td>
-                        </tr>
-
-                        {/* 5 */}
-                        <tr>
-                          <td>14:22:21</td>
-                          <td>
-                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
-                          </td>
-                          <td className="net-target-cell">update.microsoft.com</td>
-                          <td>443</td>
-                          <td>HTTPS</td>
-                          <td>16 KB</td>
-                          <td>220 KB</td>
-                          <td><span className="badge-rep-benign">Benign</span></td>
-                        </tr>
-
-                        {/* 6 */}
-                        <tr>
-                          <td>14:22:25</td>
-                          <td>
-                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
-                          </td>
-                          <td className="net-target-cell mono-font">185.220.101.12</td>
-                          <td>8080</td>
-                          <td>HTTP</td>
-                          <td>2 KB</td>
-                          <td>12 KB</td>
-                          <td><span className="badge-rep-malicious">Malicious</span></td>
-                        </tr>
-
-                        {/* 7 */}
-                        <tr>
-                          <td>14:22:27</td>
-                          <td>
-                            <span className="dir-arrow arrow-down" title="Inbound">↓</span>
-                          </td>
-                          <td className="net-target-cell mono-font">104.18.31.12</td>
-                          <td>443</td>
-                          <td>HTTPS</td>
-                          <td>0 B</td>
-                          <td>420 KB</td>
-                          <td><span className="badge-rep-suspicious">Suspicious</span></td>
-                        </tr>
-
-                        {/* 8 */}
-                        <tr>
-                          <td>14:22:31</td>
-                          <td>
-                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
-                          </td>
-                          <td className="net-target-cell">ntp.windows.com</td>
-                          <td>123</td>
-                          <td>NTP</td>
-                          <td>84 B</td>
-                          <td>84 B</td>
-                          <td><span className="badge-rep-benign">Benign</span></td>
-                        </tr>
-
-                        {/* 9 */}
-                        <tr>
-                          <td>14:22:33</td>
-                          <td>
-                            <span className="dir-arrow arrow-up" title="Outbound">↑</span>
-                          </td>
-                          <td className="net-target-cell mono-font">142.250.190.78</td>
-                          <td>443</td>
-                          <td>HTTPS</td>
-                          <td>6 KB</td>
-                          <td>380 KB</td>
-                          <td><span className="badge-rep-unknown">Unknown</span></td>
-                        </tr>
-
-                        {/* 10 */}
-                        <tr>
-                          <td>14:22:35</td>
-                          <td>
-                            <span className="dir-arrow arrow-down" title="Inbound">↓</span>
-                          </td>
-                          <td className="net-target-cell mono-font">8.8.8.8</td>
-                          <td>53</td>
-                          <td>DNS</td>
-                          <td>512 B</td>
-                          <td>1.1 KB</td>
-                          <td><span className="badge-rep-benign">Benign</span></td>
-                        </tr>
+                        {paginatedNetwork.length > 0 ? (
+                          paginatedNetwork.map((conn) => (
+                            <tr key={conn.id}>
+                              <td>{conn.time}</td>
+                              <td>
+                                {conn.isInbound ? (
+                                  <span className="dir-arrow arrow-down" title="Inbound">↓</span>
+                                ) : (
+                                  <span className="dir-arrow arrow-up" title="Outbound">↑</span>
+                                )}
+                              </td>
+                              <td className={`net-target-cell ${conn.target.includes('.') && !conn.target.match(/^\d/) ? 'font-semibold' : 'mono-font'}`}>
+                                {conn.target}
+                              </td>
+                              <td>{conn.destPort}</td>
+                              <td>{conn.protocol}</td>
+                              <td>{conn.bytesSent}</td>
+                              <td>{conn.bytesRecv}</td>
+                              <td><span className={conn.repBadgeClass}>{conn.reputation}</span></td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#6B7280' }}>
+                              <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.25rem' }}>No network connections observed</p>
+                              <p style={{ fontSize: '0.8rem' }}>No inbound or outbound network traffic was recorded.</p>
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
 
                   {/* Pagination Footer */}
                   <div className="net-pagination-footer">
-                    <span className="net-pagination-info">Showing 1 to 10 of 14 connections</span>
+                    <span className="net-pagination-info">
+                      Showing {filteredNetwork.length === 0 ? 0 : (netPage - 1) * 10 + 1} to {Math.min(netPage * 10, filteredNetwork.length)} of {filteredNetwork.length} connections
+                    </span>
                     <div className="net-pagination-controls">
-                      <button type="button" className="btn-page-arrow" disabled>
+                      <button
+                        type="button"
+                        className="btn-page-arrow"
+                        disabled={netPage <= 1}
+                        onClick={() => setNetPage((p) => Math.max(1, p - 1))}
+                      >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="15 18 9 12 15 6" />
                         </svg>
                       </button>
-                      <button type="button" className="btn-page-number active">1</button>
-                      <button type="button" className="btn-page-number">2</button>
-                      <button type="button" className="btn-page-arrow">
+                      {Array.from({ length: netTotalPages }, (_, i) => i + 1).slice(0, 5).map((pageNo) => (
+                        <button
+                          key={pageNo}
+                          type="button"
+                          className={`btn-page-number ${netPage === pageNo ? 'active' : ''}`}
+                          onClick={() => setNetPage(pageNo)}
+                        >
+                          {pageNo}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className="btn-page-arrow"
+                        disabled={netPage >= netTotalPages}
+                        onClick={() => setNetPage((p) => Math.min(netTotalPages, p + 1))}
+                      >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="9 18 15 12 9 6" />
                         </svg>
@@ -2078,11 +2763,10 @@ const Dashboard = ({
 
                 {/* Right: Widgets Column */}
                 <div className="net-widgets-col">
-                  {/* Widget 1: Destination Countries */}
+                  {/* Widget 1: Destination Countries / Network Profile */}
                   <div className="dashboard-card net-widget-card">
-                    <h4 className="net-widget-title">Destination Countries</h4>
+                    <h4 className="net-widget-title">Destination Overview</h4>
                     <div className="net-world-map-wrapper">
-                      {/* Stylized SVG World Map */}
                       <svg viewBox="0 0 380 180" className="net-world-map-svg">
                         <path
                           className="map-continent"
@@ -2114,45 +2798,38 @@ const Dashboard = ({
                           d="M 280 115 Q 325 110 320 145 Q 285 150 280 125 Z"
                           fill="#E5E9F0"
                         />
-
-                        {/* Ping / Marker on United States */}
-                        <circle cx="82" cy="58" r="14" fill="#EF4444" fillOpacity="0.2" />
-                        <circle cx="82" cy="58" r="5" fill="#EF4444" />
-                        <circle cx="82" cy="58" r="2" fill="#FFFFFF" />
-
-                        {/* Ping / Marker on Europe */}
-                        <circle cx="185" cy="48" r="4" fill="#F59E0B" />
-
-                        {/* Ping / Marker on East Asia / Singapore */}
-                        <circle cx="270" cy="98" r="5" fill="#10B981" />
+                        {totalNetConnections > 0 && (
+                          <>
+                            <circle cx="82" cy="58" r="12" fill="#EF4444" fillOpacity="0.2" />
+                            <circle cx="82" cy="58" r="5" fill="#EF4444" />
+                            <circle cx="82" cy="58" r="2" fill="#FFFFFF" />
+                            <circle cx="185" cy="48" r="4" fill="#F59E0B" />
+                            <circle cx="270" cy="98" r="5" fill="#10B981" />
+                          </>
+                        )}
                       </svg>
                     </div>
 
                     <div className="net-countries-legend-grid">
                       <div className="country-legend-item">
                         <span className="legend-dot-country dot-red"></span>
-                        <span className="country-name-txt">United States</span>
-                        <span className="country-count-txt">6</span>
+                        <span className="country-name-txt">Remote Endpoints</span>
+                        <span className="country-count-txt">{normNetwork.filter(n => !n.destIp.startsWith('127.') && !n.destIp.startsWith('192.168.')).length}</span>
                       </div>
                       <div className="country-legend-item">
                         <span className="legend-dot-country dot-green"></span>
-                        <span className="country-name-txt">Singapore</span>
-                        <span className="country-count-txt">1</span>
+                        <span className="country-name-txt">Local / Internal</span>
+                        <span className="country-count-txt">{normNetwork.filter(n => n.destIp.startsWith('127.') || n.destIp.startsWith('192.168.')).length}</span>
                       </div>
                       <div className="country-legend-item">
                         <span className="legend-dot-country dot-orange"></span>
-                        <span className="country-name-txt">Germany</span>
-                        <span className="country-count-txt">3</span>
+                        <span className="country-name-txt">Unique Destinations</span>
+                        <span className="country-count-txt">{uniqueNetIps}</span>
                       </div>
                       <div className="country-legend-item">
                         <span className="legend-dot-country dot-grey"></span>
-                        <span className="country-name-txt">Unknown</span>
-                        <span className="country-count-txt">2</span>
-                      </div>
-                      <div className="country-legend-item">
-                        <span className="legend-dot-country dot-yellow"></span>
-                        <span className="country-name-txt">Netherlands</span>
-                        <span className="country-count-txt">2</span>
+                        <span className="country-name-txt">Total Flows</span>
+                        <span className="country-count-txt">{totalNetConnections}</span>
                       </div>
                     </div>
                   </div>
@@ -2160,93 +2837,53 @@ const Dashboard = ({
                   {/* Widget 2: Top Domains */}
                   <div className="dashboard-card net-widget-card">
                     <h4 className="net-widget-title">Top Domains</h4>
-                    <div className="net-progress-bars-list">
-                      <div className="net-progress-row">
-                        <span className="prog-item-name">api.example.com</span>
-                        <div className="prog-track">
-                          <div className="prog-bar bg-red" style={{ width: '85%' }}></div>
-                        </div>
-                        <span className="prog-count-val">6</span>
+                    {topNetDomains.length > 0 ? (
+                      <div className="net-progress-bars-list">
+                        {topNetDomains.map((item, idx) => {
+                          const barColors = ['bg-red', 'bg-orange', 'bg-yellow', 'bg-teal', 'bg-grey']
+                          const pct = Math.round((item.count / maxNetDomainCount) * 100)
+                          return (
+                            <div className="net-progress-row" key={idx}>
+                              <span className="prog-item-name" title={item.name}>{item.name}</span>
+                              <div className="prog-track">
+                                <div className={`prog-bar ${barColors[idx % barColors.length]}`} style={{ width: `${Math.max(15, pct)}%` }}></div>
+                              </div>
+                              <span className="prog-count-val">{item.count}</span>
+                            </div>
+                          )
+                        })}
                       </div>
-
-                      <div className="net-progress-row">
-                        <span className="prog-item-name">cdn.example.net</span>
-                        <div className="prog-track">
-                          <div className="prog-bar bg-orange" style={{ width: '60%' }}></div>
-                        </div>
-                        <span className="prog-count-val">4</span>
+                    ) : (
+                      <div style={{ padding: '1.75rem 1rem', textAlign: 'center', color: '#6B7280', fontSize: '0.82rem' }}>
+                        No domain queries observed.
                       </div>
-
-                      <div className="net-progress-row">
-                        <span className="prog-item-name">update.microsoft.com</span>
-                        <div className="prog-track">
-                          <div className="prog-bar bg-yellow" style={{ width: '35%' }}></div>
-                        </div>
-                        <span className="prog-count-val">2</span>
-                      </div>
-
-                      <div className="net-progress-row">
-                        <span className="prog-item-name">ntp.windows.com</span>
-                        <div className="prog-track">
-                          <div className="prog-bar bg-teal" style={{ width: '20%' }}></div>
-                        </div>
-                        <span className="prog-count-val">1</span>
-                      </div>
-
-                      <div className="net-progress-row">
-                        <span className="prog-item-name">Others</span>
-                        <div className="prog-track">
-                          <div className="prog-bar bg-grey" style={{ width: '45%' }}></div>
-                        </div>
-                        <span className="prog-count-val">3</span>
-                      </div>
-                    </div>
+                    )}
                   </div>
 
                   {/* Widget 3: Top IP Addresses */}
                   <div className="dashboard-card net-widget-card">
                     <h4 className="net-widget-title">Top IP Addresses</h4>
-                    <div className="net-progress-bars-list">
-                      <div className="net-progress-row">
-                        <span className="prog-item-name mono-font">185.199.110.43</span>
-                        <div className="prog-track">
-                          <div className="prog-bar bg-red" style={{ width: '80%' }}></div>
-                        </div>
-                        <span className="prog-count-val">4</span>
+                    {topNetIps.length > 0 ? (
+                      <div className="net-progress-bars-list">
+                        {topNetIps.map((item, idx) => {
+                          const barColors = ['bg-red', 'bg-orange', 'bg-yellow', 'bg-teal', 'bg-grey']
+                          const pct = Math.round((item.count / maxNetIpCount) * 100)
+                          return (
+                            <div className="net-progress-row" key={idx}>
+                              <span className="prog-item-name mono-font">{item.ip}</span>
+                              <div className="prog-track">
+                                <div className={`prog-bar ${barColors[idx % barColors.length]}`} style={{ width: `${Math.max(15, pct)}%` }}></div>
+                              </div>
+                              <span className="prog-count-val">{item.count}</span>
+                            </div>
+                          )
+                        })}
                       </div>
-
-                      <div className="net-progress-row">
-                        <span className="prog-item-name mono-font">104.18.31.12</span>
-                        <div className="prog-track">
-                          <div className="prog-bar bg-orange" style={{ width: '60%' }}></div>
-                        </div>
-                        <span className="prog-count-val">3</span>
+                    ) : (
+                      <div style={{ padding: '1.75rem 1rem', textAlign: 'center', color: '#6B7280', fontSize: '0.82rem' }}>
+                        No IP connections recorded.
                       </div>
-
-                      <div className="net-progress-row">
-                        <span className="prog-item-name mono-font">91.213.21.34</span>
-                        <div className="prog-track">
-                          <div className="prog-bar bg-yellow" style={{ width: '45%' }}></div>
-                        </div>
-                        <span className="prog-count-val">2</span>
-                      </div>
-
-                      <div className="net-progress-row">
-                        <span className="prog-item-name mono-font">142.250.190.78</span>
-                        <div className="prog-track">
-                          <div className="prog-bar bg-teal" style={{ width: '25%' }}></div>
-                        </div>
-                        <span className="prog-count-val">1</span>
-                      </div>
-
-                      <div className="net-progress-row">
-                        <span className="prog-item-name">Others</span>
-                        <div className="prog-track">
-                          <div className="prog-bar bg-grey" style={{ width: '60%' }}></div>
-                        </div>
-                        <span className="prog-count-val">3</span>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2285,14 +2922,43 @@ const Dashboard = ({
                         type="text"
                         placeholder="Search domains..."
                         className="dns-search-input"
+                        value={dnsSearchQuery}
+                        onChange={(e) => {
+                          setDnsSearchQuery(e.target.value)
+                          setDnsPage(1)
+                        }}
                       />
                     </div>
 
-                    <div className="dns-filter-dropdown">
-                      <span>All Types</span>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
+                    <div className="dns-filter-dropdown-wrap" style={{ position: 'relative' }}>
+                      <div
+                        className="dns-filter-dropdown"
+                        onClick={() => setIsDnsFilterOpen(!isDnsFilterOpen)}
+                      >
+                        <span>{dnsTypeFilter}</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </div>
+
+                      {isDnsFilterOpen && (
+                        <div className="process-dropdown-menu" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 25 }}>
+                          {['All Types', 'A', 'AAAA', 'CNAME', 'PTR', 'MX'].map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              className={`dropdown-item-btn ${dnsTypeFilter === t ? 'selected' : ''}`}
+                              onClick={() => {
+                                setDnsTypeFilter(t)
+                                setIsDnsFilterOpen(false)
+                                setDnsPage(1)
+                              }}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2311,121 +2977,61 @@ const Dashboard = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {/* 1 */}
-                      <tr>
-                        <td>00:02:14</td>
-                        <td className="dns-domain-bold">api.example.com</td>
-                        <td className="dns-type-cell">A</td>
-                        <td className="dns-ip-mono">185.199.110.43</td>
-                        <td>3</td>
-                        <td><span className="badge-rep-malicious">Malicious</span></td>
-                      </tr>
-
-                      {/* 2 */}
-                      <tr>
-                        <td>00:02:16</td>
-                        <td className="dns-domain-bold">cdn.example.net</td>
-                        <td className="dns-type-cell">A</td>
-                        <td className="dns-ip-mono">91.213.21.34</td>
-                        <td>2</td>
-                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
-                      </tr>
-
-                      {/* 3 */}
-                      <tr>
-                        <td>00:02:19</td>
-                        <td className="dns-domain-bold">update.microsoft.com</td>
-                        <td className="dns-type-cell">A</td>
-                        <td className="dns-ip-mono">104.18.31.12</td>
-                        <td>1</td>
-                        <td><span className="badge-rep-benign">Benign</span></td>
-                      </tr>
-
-                      {/* 4 */}
-                      <tr>
-                        <td>00:02:21</td>
-                        <td className="dns-domain-bold">ntp.windows.com</td>
-                        <td className="dns-type-cell">A</td>
-                        <td className="dns-ip-mono">20.189.173.8</td>
-                        <td>1</td>
-                        <td><span className="badge-rep-benign">Benign</span></td>
-                      </tr>
-
-                      {/* 5 */}
-                      <tr>
-                        <td>00:02:24</td>
-                        <td className="dns-domain-bold">track.example.org</td>
-                        <td className="dns-type-cell">A</td>
-                        <td className="dns-ip-mono">142.250.190.78</td>
-                        <td>4</td>
-                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
-                      </tr>
-
-                      {/* 6 */}
-                      <tr>
-                        <td>00:02:27</td>
-                        <td className="dns-domain-bold">malicious-domain.xyz</td>
-                        <td className="dns-type-cell">A</td>
-                        <td className="dns-ip-mono">8.8.8.8</td>
-                        <td>1</td>
-                        <td><span className="badge-rep-malicious">Malicious</span></td>
-                      </tr>
-
-                      {/* 7 */}
-                      <tr>
-                        <td>00:02:31</td>
-                        <td className="dns-domain-bold">data.example.com</td>
-                        <td className="dns-type-cell">A</td>
-                        <td className="dns-ip-mono">185.220.101.12</td>
-                        <td>3</td>
-                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
-                      </tr>
-
-                      {/* 8 */}
-                      <tr>
-                        <td>00:02:34</td>
-                        <td className="dns-domain-bold">staging.example.net</td>
-                        <td className="dns-type-cell">A</td>
-                        <td className="dns-ip-mono">93.184.216.34</td>
-                        <td>1</td>
-                        <td><span className="badge-rep-unknown">Unknown</span></td>
-                      </tr>
-
-                      {/* 9 */}
-                      <tr>
-                        <td>00:02:36</td>
-                        <td className="dns-domain-bold">detectportal.firefox.com</td>
-                        <td className="dns-type-cell">A</td>
-                        <td className="dns-ip-mono">34.107.221.82</td>
-                        <td>1</td>
-                        <td><span className="badge-rep-benign">Benign</span></td>
-                      </tr>
-
-                      {/* 10 */}
-                      <tr>
-                        <td>00:02:41</td>
-                        <td className="dns-domain-bold">schemas.microsoft.com</td>
-                        <td className="dns-type-cell">A</td>
-                        <td className="dns-ip-mono">23.48.99.120</td>
-                        <td>1</td>
-                        <td><span className="badge-rep-benign">Benign</span></td>
-                      </tr>
+                      {paginatedDns.length > 0 ? (
+                        paginatedDns.map((dns) => (
+                          <tr key={dns.id}>
+                            <td>{dns.time}</td>
+                            <td className="dns-domain-bold">{dns.domain}</td>
+                            <td className="dns-type-cell">{dns.type}</td>
+                            <td className="dns-ip-mono">{dns.resolvedIp}</td>
+                            <td>{dns.count}</td>
+                            <td><span className={dns.repBadgeClass}>{dns.reputation}</span></td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="6" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#6B7280' }}>
+                            <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.25rem' }}>No DNS queries recorded</p>
+                            <p style={{ fontSize: '0.8rem' }}>No domain name resolution activity was observed during this analysis.</p>
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
 
                 {/* Pagination */}
                 <div className="dns-pagination-footer">
-                  <span className="dns-pagination-info">Showing 1 to 10 of 18 domains</span>
+                  <span className="dns-pagination-info">
+                    Showing {filteredDns.length === 0 ? 0 : (dnsPage - 1) * 10 + 1} to {Math.min(dnsPage * 10, filteredDns.length)} of {filteredDns.length} domains
+                  </span>
                   <div className="dns-pagination-controls">
-                    <button type="button" className="btn-page-arrow" disabled>
+                    <button
+                      type="button"
+                      className="btn-page-arrow"
+                      disabled={dnsPage <= 1}
+                      onClick={() => setDnsPage((p) => Math.max(1, p - 1))}
+                    >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="15 18 9 12 15 6" />
                       </svg>
                     </button>
-                    <button type="button" className="btn-page-number active">1</button>
-                    <button type="button" className="btn-page-number">2</button>
-                    <button type="button" className="btn-page-arrow">
+                    {Array.from({ length: dnsTotalPages }, (_, i) => i + 1).slice(0, 5).map((pageNo) => (
+                      <button
+                        key={pageNo}
+                        type="button"
+                        className={`btn-page-number ${dnsPage === pageNo ? 'active' : ''}`}
+                        onClick={() => setDnsPage(pageNo)}
+                      >
+                        {pageNo}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="btn-page-arrow"
+                      disabled={dnsPage >= dnsTotalPages}
+                      onClick={() => setDnsPage((p) => Math.min(dnsTotalPages, p + 1))}
+                    >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="9 18 15 12 9 6" />
                       </svg>
@@ -2450,7 +3056,6 @@ const Dashboard = ({
                   </div>
 
                   <div className="dns-summary-mini-grid">
-                    {/* Total Queries */}
                     <div className="dns-mini-box">
                       <div className="dns-mini-icon-wrap icon-blue-bg">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2459,11 +3064,10 @@ const Dashboard = ({
                           <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                         </svg>
                       </div>
-                      <span className="dns-mini-num">18</span>
+                      <span className="dns-mini-num">{dnsTotalQueries}</span>
                       <span className="dns-mini-txt">Total Queries</span>
                     </div>
 
-                    {/* Unique Domains */}
                     <div className="dns-mini-box">
                       <div className="dns-mini-icon-wrap icon-blue-bg">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2474,11 +3078,10 @@ const Dashboard = ({
                           <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
                         </svg>
                       </div>
-                      <span className="dns-mini-num">6</span>
+                      <span className="dns-mini-num">{dnsUniqueDomains}</span>
                       <span className="dns-mini-txt">Unique Domains</span>
                     </div>
 
-                    {/* Unique IPs */}
                     <div className="dns-mini-box">
                       <div className="dns-mini-icon-wrap icon-purple-bg">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2488,11 +3091,10 @@ const Dashboard = ({
                           <line x1="6" y1="18" x2="6.01" y2="18" />
                         </svg>
                       </div>
-                      <span className="dns-mini-num">8</span>
+                      <span className="dns-mini-num">{dnsUniqueIps}</span>
                       <span className="dns-mini-txt">Unique IPs</span>
                     </div>
 
-                    {/* Suspicious Domains */}
                     <div className="dns-mini-box">
                       <div className="dns-mini-icon-wrap icon-yellow-bg">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2501,7 +3103,7 @@ const Dashboard = ({
                           <line x1="12" y1="17" x2="12.01" y2="17" />
                         </svg>
                       </div>
-                      <span className="dns-mini-num">3</span>
+                      <span className="dns-mini-num">{dnsSuspiciousCount}</span>
                       <span className="dns-mini-txt">Suspicious Domains</span>
                     </div>
                   </div>
@@ -2519,7 +3121,6 @@ const Dashboard = ({
                       </span>
                       <h4 className="dns-widget-title">Top Queried Domains</h4>
                     </div>
-                    <span className="dns-arrow-right">→</span>
                   </div>
 
                   <div className="dns-bars-header-row">
@@ -2527,47 +3128,27 @@ const Dashboard = ({
                     <span>Query Count</span>
                   </div>
 
-                  <div className="dns-progress-bars-list">
-                    <div className="dns-progress-row">
-                      <span className="prog-domain-name">api.example.com</span>
-                      <div className="prog-track">
-                        <div className="prog-bar bg-red" style={{ width: '85%' }}></div>
-                      </div>
-                      <span className="prog-count-val">3</span>
+                  {topQueriedDns.length > 0 ? (
+                    <div className="dns-progress-bars-list">
+                      {topQueriedDns.map((item, idx) => {
+                        const barColors = ['bg-red', 'bg-orange', 'bg-yellow', 'bg-teal', 'bg-grey']
+                        const pct = Math.round((item.count / maxDnsQueryCount) * 100)
+                        return (
+                          <div className="dns-progress-row" key={idx}>
+                            <span className="prog-domain-name" title={item.domain}>{item.domain}</span>
+                            <div className="prog-track">
+                              <div className={`prog-bar ${barColors[idx % barColors.length]}`} style={{ width: `${Math.max(15, pct)}%` }}></div>
+                            </div>
+                            <span className="prog-count-val">{item.count}</span>
+                          </div>
+                        )
+                      })}
                     </div>
-
-                    <div className="dns-progress-row">
-                      <span className="prog-domain-name">data.example.com</span>
-                      <div className="prog-track">
-                        <div className="prog-bar bg-orange" style={{ width: '85%' }}></div>
-                      </div>
-                      <span className="prog-count-val">3</span>
+                  ) : (
+                    <div style={{ padding: '1.75rem 1rem', textAlign: 'center', color: '#6B7280', fontSize: '0.82rem' }}>
+                      No queried domains.
                     </div>
-
-                    <div className="dns-progress-row">
-                      <span className="prog-domain-name">cdn.example.net</span>
-                      <div className="prog-track">
-                        <div className="prog-bar bg-orange" style={{ width: '60%' }}></div>
-                      </div>
-                      <span className="prog-count-val">2</span>
-                    </div>
-
-                    <div className="dns-progress-row">
-                      <span className="prog-domain-name">update.microsoft.com</span>
-                      <div className="prog-track">
-                        <div className="prog-bar bg-yellow" style={{ width: '30%' }}></div>
-                      </div>
-                      <span className="prog-count-val">1</span>
-                    </div>
-
-                    <div className="dns-progress-row">
-                      <span className="prog-domain-name">ntp.windows.com</span>
-                      <div className="prog-track">
-                        <div className="prog-bar bg-grey" style={{ width: '30%' }}></div>
-                      </div>
-                      <span className="prog-count-val">1</span>
-                    </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* 3. Top Resolved IPs Card */}
@@ -2582,7 +3163,6 @@ const Dashboard = ({
                       </span>
                       <h4 className="dns-widget-title">Top Resolved IPs</h4>
                     </div>
-                    <span className="dns-arrow-right">→</span>
                   </div>
 
                   <div className="dns-bars-header-row">
@@ -2590,47 +3170,27 @@ const Dashboard = ({
                     <span>Query Count</span>
                   </div>
 
-                  <div className="dns-progress-bars-list">
-                    <div className="dns-progress-row">
-                      <span className="prog-domain-name mono-font">185.199.110.43</span>
-                      <div className="prog-track">
-                        <div className="prog-bar bg-red" style={{ width: '85%' }}></div>
-                      </div>
-                      <span className="prog-count-val">3</span>
+                  {topResolvedIps.length > 0 ? (
+                    <div className="dns-progress-bars-list">
+                      {topResolvedIps.map((item, idx) => {
+                        const barColors = ['bg-red', 'bg-orange', 'bg-yellow', 'bg-teal', 'bg-grey']
+                        const pct = Math.round((item.count / maxResolvedIpCount) * 100)
+                        return (
+                          <div className="dns-progress-row" key={idx}>
+                            <span className="prog-domain-name mono-font">{item.ip}</span>
+                            <div className="prog-track">
+                              <div className={`prog-bar ${barColors[idx % barColors.length]}`} style={{ width: `${Math.max(15, pct)}%` }}></div>
+                            </div>
+                            <span className="prog-count-val">{item.count}</span>
+                          </div>
+                        )
+                      })}
                     </div>
-
-                    <div className="dns-progress-row">
-                      <span className="prog-domain-name mono-font">185.220.101.12</span>
-                      <div className="prog-track">
-                        <div className="prog-bar bg-orange" style={{ width: '85%' }}></div>
-                      </div>
-                      <span className="prog-count-val">3</span>
+                  ) : (
+                    <div style={{ padding: '1.75rem 1rem', textAlign: 'center', color: '#6B7280', fontSize: '0.82rem' }}>
+                      No resolved IP addresses.
                     </div>
-
-                    <div className="dns-progress-row">
-                      <span className="prog-domain-name mono-font">91.213.21.34</span>
-                      <div className="prog-track">
-                        <div className="prog-bar bg-orange" style={{ width: '60%' }}></div>
-                      </div>
-                      <span className="prog-count-val">2</span>
-                    </div>
-
-                    <div className="dns-progress-row">
-                      <span className="prog-domain-name mono-font">104.18.31.12</span>
-                      <div className="prog-track">
-                        <div className="prog-bar bg-yellow" style={{ width: '30%' }}></div>
-                      </div>
-                      <span className="prog-count-val">1</span>
-                    </div>
-
-                    <div className="dns-progress-row">
-                      <span className="prog-domain-name mono-font">20.189.173.8</span>
-                      <div className="prog-track">
-                        <div className="prog-bar bg-grey" style={{ width: '30%' }}></div>
-                      </div>
-                      <span className="prog-count-val">1</span>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2670,18 +3230,47 @@ const Dashboard = ({
                         type="text"
                         placeholder="Search modules..."
                         className="modules-search-input"
+                        value={moduleSearchQuery}
+                        onChange={(e) => {
+                          setModuleSearchQuery(e.target.value)
+                          setModulePage(1)
+                        }}
                       />
                     </div>
 
-                    <div className="modules-filter-dropdown">
-                      <span>All Modules</span>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
+                    <div className="process-filter-dropdown-wrapper" style={{ position: 'relative' }}>
+                      <div
+                        className="modules-filter-dropdown"
+                        onClick={() => setIsModuleFilterOpen(!isModuleFilterOpen)}
+                      >
+                        <span>{moduleFilter}</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </div>
+
+                      {isModuleFilterOpen && (
+                        <div className="process-dropdown-menu" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 25 }}>
+                          {['All Modules', 'Unsigned / High Risk', 'System Modules'].map((fOpt) => (
+                            <button
+                              key={fOpt}
+                              type="button"
+                              className={`dropdown-item-btn ${moduleFilter === fOpt ? 'selected' : ''}`}
+                              onClick={() => {
+                                setModuleFilter(fOpt)
+                                setIsModuleFilterOpen(false)
+                                setModulePage(1)
+                              }}
+                            >
+                              {fOpt}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     <div className="modules-count-pill">
-                      <span>21 modules</span>
+                      <span>{filteredModules.length} modules</span>
                     </div>
                   </div>
                 </div>
@@ -2702,271 +3291,191 @@ const Dashboard = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {/* 1 */}
-                      <tr>
-                        <td>
-                          <div className="mod-name-cell">
-                            <span className="mod-file-icon">📄</span>
-                            <span className="mod-name-text">ntdll.dll</span>
-                          </div>
-                        </td>
-                        <td className="mod-loaded-text">sample_malware.exe</td>
-                        <td className="mod-path-text">C:\Windows\System32\ntdll.dll</td>
-                        <td className="mod-mono-cell">0x7ffb10000000</td>
-                        <td>1.8 MB</td>
-                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
-                        <td className="mod-mono-cell truncate-sha">3f2e5a9c0d7b...</td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-
-                      {/* 2 */}
-                      <tr>
-                        <td>
-                          <div className="mod-name-cell">
-                            <span className="mod-file-icon">📄</span>
-                            <span className="mod-name-text">kernel32.dll</span>
-                          </div>
-                        </td>
-                        <td className="mod-loaded-text">sample_malware.exe</td>
-                        <td className="mod-path-text">C:\Windows\System32\kernel32.dll</td>
-                        <td className="mod-mono-cell">0x7ffb11000000</td>
-                        <td>1.1 MB</td>
-                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
-                        <td className="mod-mono-cell truncate-sha">9a4c7d1e5b2f...</td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-
-                      {/* 3 */}
-                      <tr>
-                        <td>
-                          <div className="mod-name-cell">
-                            <span className="mod-file-icon">📄</span>
-                            <span className="mod-name-text">advapi32.dll</span>
-                          </div>
-                        </td>
-                        <td className="mod-loaded-text">sample_malware.exe</td>
-                        <td className="mod-path-text">C:\Windows\System32\advapi32.dll</td>
-                        <td className="mod-mono-cell">0x7ffb12000000</td>
-                        <td>712 KB</td>
-                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
-                        <td className="mod-mono-cell truncate-sha">d1f9c3a2e7b6...</td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-
-                      {/* 4 */}
-                      <tr>
-                        <td>
-                          <div className="mod-name-cell">
-                            <span className="mod-file-icon">📄</span>
-                            <span className="mod-name-text">ws2_32.dll</span>
-                          </div>
-                        </td>
-                        <td className="mod-loaded-text">sample_malware.exe</td>
-                        <td className="mod-path-text">C:\Windows\System32\ws2_32.dll</td>
-                        <td className="mod-mono-cell">0x7ffb13000000</td>
-                        <td>436 KB</td>
-                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
-                        <td className="mod-mono-cell truncate-sha">7c9e1f4d8a3b...</td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-
-                      {/* 5 - payload.dll (SELECTED) */}
-                      <tr className="row-selected-module">
-                        <td>
-                          <div className="mod-name-cell">
-                            <span className="mod-file-icon">📄</span>
-                            <span className="mod-name-text font-bold">payload.dll</span>
-                          </div>
-                        </td>
-                        <td className="mod-loaded-text">sample_malware.exe</td>
-                        <td className="mod-path-text">C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\payload.dll</td>
-                        <td className="mod-mono-cell">0x7ffb2a000000</td>
-                        <td>243 KB</td>
-                        <td><span className="badge-sig-unsigned">Unsigned</span></td>
-                        <td className="mod-mono-cell truncate-sha">c6b2d9f4a1e8...</td>
-                        <td><span className="badge-severity-high">High</span></td>
-                      </tr>
-
-                      {/* 6 */}
-                      <tr>
-                        <td>
-                          <div className="mod-name-cell">
-                            <span className="mod-file-icon">📄</span>
-                            <span className="mod-name-text">config.dll</span>
-                          </div>
-                        </td>
-                        <td className="mod-loaded-text">sample_malware.exe</td>
-                        <td className="mod-path-text">C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\config.dll</td>
-                        <td className="mod-mono-cell">0x7ffb2b000000</td>
-                        <td>96 KB</td>
-                        <td><span className="badge-sig-unsigned">Unsigned</span></td>
-                        <td className="mod-mono-cell truncate-sha">f52a3c9d4e7b...</td>
-                        <td><span className="badge-severity-suspicious">Suspicious</span></td>
-                      </tr>
-
-                      {/* 7 */}
-                      <tr>
-                        <td>
-                          <div className="mod-name-cell">
-                            <span className="mod-file-icon">📄</span>
-                            <span className="mod-name-text">user32.dll</span>
-                          </div>
-                        </td>
-                        <td className="mod-loaded-text">sample_malware.exe</td>
-                        <td className="mod-path-text">C:\Windows\System32\user32.dll</td>
-                        <td className="mod-mono-cell">0x7ffb15000000</td>
-                        <td>1.3 MB</td>
-                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
-                        <td className="mod-mono-cell truncate-sha">9e3d7a1b6c4f...</td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-
-                      {/* 8 */}
-                      <tr>
-                        <td>
-                          <div className="mod-name-cell">
-                            <span className="mod-file-icon">📄</span>
-                            <span className="mod-name-text">gdi32.dll</span>
-                          </div>
-                        </td>
-                        <td className="mod-loaded-text">sample_malware.exe</td>
-                        <td className="mod-path-text">C:\Windows\System32\gdi32.dll</td>
-                        <td className="mod-mono-cell">0x7ffb16000000</td>
-                        <td>980 KB</td>
-                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
-                        <td className="mod-mono-cell truncate-sha">a7d3e1c9b5f2...</td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-
-                      {/* 9 */}
-                      <tr>
-                        <td>
-                          <div className="mod-name-cell">
-                            <span className="mod-file-icon">📄</span>
-                            <span className="mod-name-text">ole32.dll</span>
-                          </div>
-                        </td>
-                        <td className="mod-loaded-text">sample_malware.exe</td>
-                        <td className="mod-path-text">C:\Windows\System32\ole32.dll</td>
-                        <td className="mod-mono-cell">0x7ffb17000000</td>
-                        <td>1.0 MB</td>
-                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
-                        <td className="mod-mono-cell truncate-sha">b4e6c5d7a8f1...</td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-
-                      {/* 10 */}
-                      <tr>
-                        <td>
-                          <div className="mod-name-cell">
-                            <span className="mod-file-icon">📄</span>
-                            <span className="mod-name-text">oleaut32.dll</span>
-                          </div>
-                        </td>
-                        <td className="mod-loaded-text">sample_malware.exe</td>
-                        <td className="mod-path-text">C:\Windows\System32\oleaut32.dll</td>
-                        <td className="mod-mono-cell">0x7ffb18000000</td>
-                        <td>704 KB</td>
-                        <td><span className="badge-sig-verified">Microsoft Windows</span></td>
-                        <td className="mod-mono-cell truncate-sha">c9f1e2d3a4b6...</td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
+                      {paginatedModules.length > 0 ? (
+                        paginatedModules.map((mod) => (
+                          <tr
+                            key={mod.id}
+                            className={activeSelectedModule?.id === mod.id ? 'row-selected-module' : ''}
+                            onClick={() => setSelectedModuleIndex(mod.id)}
+                          >
+                            <td>
+                              <div className="mod-name-cell">
+                                <span className="mod-file-icon">📄</span>
+                                <span className={`mod-name-text ${activeSelectedModule?.id === mod.id ? 'font-bold' : ''}`}>
+                                  {mod.name}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="mod-loaded-text">{mod.loadedBy}</td>
+                            <td className="mod-path-text" title={mod.path}>{mod.path}</td>
+                            <td className="mod-mono-cell">{mod.baseAddress}</td>
+                            <td>{mod.size}</td>
+                            <td><span className={mod.sigBadgeClass}>{mod.signature}</span></td>
+                            <td className="mod-mono-cell truncate-sha" title={mod.sha256}>
+                              {mod.sha256 !== 'Not available' ? `${mod.sha256.substring(0, 12)}...` : '-'}
+                            </td>
+                            <td><span className={mod.riskBadgeClass}>{mod.risk}</span></td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#6B7280' }}>
+                            <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.25rem' }}>No modules found</p>
+                            <p style={{ fontSize: '0.8rem' }}>No loaded modules match your search or filter criteria.</p>
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Pagination */}
+                <div className="fs-pagination-footer" style={{ marginTop: '1rem' }}>
+                  <span className="fs-pagination-info">
+                    Showing {filteredModules.length === 0 ? 0 : (modulePage - 1) * 10 + 1} to {Math.min(modulePage * 10, filteredModules.length)} of {filteredModules.length} modules
+                  </span>
+                  <div className="fs-pagination-controls">
+                    <button
+                      type="button"
+                      className="btn-page-arrow"
+                      disabled={modulePage <= 1}
+                      onClick={() => setModulePage((p) => Math.max(1, p - 1))}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="15 18 9 12 15 6" />
+                      </svg>
+                    </button>
+                    {Array.from({ length: moduleTotalPages }, (_, i) => i + 1).slice(0, 5).map((pageNo) => (
+                      <button
+                        key={pageNo}
+                        type="button"
+                        className={`btn-page-number ${modulePage === pageNo ? 'active' : ''}`}
+                        onClick={() => setModulePage(pageNo)}
+                      >
+                        {pageNo}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="btn-page-arrow"
+                      disabled={modulePage >= moduleTotalPages}
+                      onClick={() => setModulePage((p) => Math.min(moduleTotalPages, p + 1))}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               </div>
 
               {/* 2. Bottom Inspection Card */}
               <div className="dashboard-card module-detail-split-card">
-                {/* Left Detail Column */}
-                <div className="mod-detail-left">
-                  <div className="mod-detail-heading-row">
-                    <div className="mod-detail-file-icon">
-                      <svg width="22" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                        <polyline points="14 2 14 8 20 8" />
-                      </svg>
-                    </div>
-                    <span className="mod-detail-title">payload.dll</span>
-                    <span className="badge-severity-high">High Risk</span>
-                  </div>
-
-                  <div className="mod-metadata-kv-list">
-                    <div className="mod-kv-row">
-                      <span className="mod-kv-key">Full Path</span>
-                      <span className="mod-kv-val mono-path">C:\Users\WDAGUtilityAccount\AppData\Roaming\svchost\payload.dll</span>
-                    </div>
-                    <div className="mod-kv-row">
-                      <span className="mod-kv-key">Loaded By</span>
-                      <span className="mod-kv-val">sample_malware.exe (PID 4320)</span>
-                    </div>
-                    <div className="mod-kv-row">
-                      <span className="mod-kv-key">Base Address</span>
-                      <span className="mod-kv-val mono-val">0x7ffb2a000000</span>
-                    </div>
-                    <div className="mod-kv-row">
-                      <span className="mod-kv-key">Size</span>
-                      <span className="mod-kv-val">243 KB (248,832 bytes)</span>
-                    </div>
-                    <div className="mod-kv-row">
-                      <span className="mod-kv-key">Signature</span>
-                      <span className="badge-sig-unsigned">Unsigned</span>
-                    </div>
-                    <div className="mod-kv-row">
-                      <span className="mod-kv-key">SHA-256</span>
-                      <div className="mod-sha256-wrap">
-                        <span className="mod-kv-val mono-hash truncate-hash">c6b2d9f4a1e8c3d7b0f5a9e2c4d6a7f1b8e3c0d9a2f4e6b7c1d3e5f8a9b2c4d6e</span>
-                        <button type="button" className="btn-copy-hash" title="Copy SHA-256">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                {activeSelectedModule ? (
+                  <>
+                    <div className="mod-detail-left">
+                      <div className="mod-detail-heading-row">
+                        <div className="mod-detail-file-icon">
+                          <svg width="22" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                            <polyline points="14 2 14 8 20 8" />
                           </svg>
-                        </button>
+                        </div>
+                        <span className="mod-detail-title">{activeSelectedModule.name}</span>
+                        <span className={activeSelectedModule.riskBadgeClass}>{activeSelectedModule.risk} Risk</span>
                       </div>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Right Details Column: Why Flagged & Additional Information */}
-                <div className="mod-detail-right">
-                  <div className="why-flagged-section">
-                    <div className="why-flagged-header">
-                      <span className="why-flagged-icon">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                          <line x1="12" y1="9" x2="12" y2="13" />
-                          <line x1="12" y1="17" x2="12.01" y2="17" />
-                        </svg>
-                      </span>
-                      <span className="why-flagged-title">Why Flagged</span>
+                      <div className="mod-metadata-kv-list">
+                        <div className="mod-kv-row">
+                          <span className="mod-kv-key">Full Path</span>
+                          <span className="mod-kv-val mono-path">{activeSelectedModule.path}</span>
+                        </div>
+                        <div className="mod-kv-row">
+                          <span className="mod-kv-key">Loaded By</span>
+                          <span className="mod-kv-val">{activeSelectedModule.loadedBy}</span>
+                        </div>
+                        <div className="mod-kv-row">
+                          <span className="mod-kv-key">Base Address</span>
+                          <span className="mod-kv-val mono-val">{activeSelectedModule.baseAddress}</span>
+                        </div>
+                        <div className="mod-kv-row">
+                          <span className="mod-kv-key">Size</span>
+                          <span className="mod-kv-val">{activeSelectedModule.size}</span>
+                        </div>
+                        <div className="mod-kv-row">
+                          <span className="mod-kv-key">Signature</span>
+                          <span className={activeSelectedModule.sigBadgeClass}>{activeSelectedModule.signature}</span>
+                        </div>
+                        <div className="mod-kv-row">
+                          <span className="mod-kv-key">SHA-256</span>
+                          <div className="mod-sha256-wrap">
+                            <span className="mod-kv-val mono-hash truncate-hash" title={activeSelectedModule.sha256}>
+                              {activeSelectedModule.sha256}
+                            </span>
+                            {activeSelectedModule.sha256 !== 'Not available' && (
+                              <button
+                                type="button"
+                                className="btn-copy-hash"
+                                title="Copy SHA-256"
+                                onClick={() => handleCopyHash(activeSelectedModule.sha256)}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <p className="why-flagged-desc">
-                      This module is loaded from a non-standard, user-writable directory (AppData\Roaming) and is not digitally signed. Such behavior is common in malware for executing malicious code.
-                    </p>
-                  </div>
 
-                  <div className="additional-info-section">
-                    <h5 className="additional-info-title">Additional Information</h5>
-                    <div className="mod-metadata-kv-list">
-                      <div className="mod-kv-row">
-                        <span className="mod-kv-key">Compilation Timestamp</span>
-                        <span className="mod-kv-val">N/A</span>
+                    <div className="mod-detail-right">
+                      <div className="why-flagged-section">
+                        <div className="why-flagged-header">
+                          <span className="why-flagged-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={activeSelectedModule.isSuspicious ? '#DC2626' : '#2563EB'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                              <line x1="12" y1="9" x2="12" y2="13" />
+                              <line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                          </span>
+                          <span className="why-flagged-title">
+                            {activeSelectedModule.isSuspicious ? 'Why Flagged' : 'Module Assessment'}
+                          </span>
+                        </div>
+                        <p className="why-flagged-desc">
+                          {activeSelectedModule.isSuspicious
+                            ? 'This module is loaded from a non-standard or user-writable directory and lacks a verified Windows digital signature. This pattern is commonly observed during dynamic payload execution.'
+                            : 'This module is a recognized operating system subsystem binary loaded as part of standard Windows process initialization.'}
+                        </p>
                       </div>
-                      <div className="mod-kv-row">
-                        <span className="mod-kv-key">Linker Version</span>
-                        <span className="mod-kv-val">N/A</span>
-                      </div>
-                      <div className="mod-kv-row">
-                        <span className="mod-kv-key">File Type</span>
-                        <span className="mod-kv-val">Dynamic Link Library (DLL)</span>
-                      </div>
-                      <div className="mod-kv-row">
-                        <span className="mod-kv-key">Entropy</span>
-                        <span className="mod-kv-val">6.8 (High)</span>
+
+                      <div className="additional-info-section">
+                        <h5 className="additional-info-title">Additional Information</h5>
+                        <div className="mod-metadata-kv-list">
+                          <div className="mod-kv-row">
+                            <span className="mod-kv-key">File Type</span>
+                            <span className="mod-kv-val">Dynamic Link Library (DLL)</span>
+                          </div>
+                          <div className="mod-kv-row">
+                            <span className="mod-kv-key">Load Events</span>
+                            <span className="mod-kv-val">{activeSelectedModule.count} observed event(s)</span>
+                          </div>
+                          <div className="mod-kv-row">
+                            <span className="mod-kv-key">Origin</span>
+                            <span className="mod-kv-val">{activeSelectedModule.isSystem ? 'System Directory' : 'Local Sandbox File'}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
+                  </>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '3rem', width: '100%', color: '#6B7280' }}>
+                    <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>No module selected</p>
+                    <p style={{ fontSize: '0.8rem' }}>Click any module row in the table above to view details.</p>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           )}
@@ -2976,7 +3485,6 @@ const Dashboard = ({
             <div className="mitre-tab-layout">
               {/* Main Card: Header, Tactic Pills, and Table */}
               <div className="dashboard-card mitre-main-card">
-                {/* Header Controls */}
                 <div className="mitre-header-row">
                   <div className="mitre-title-with-desc">
                     <span className="mitre-lead-icon">
@@ -3006,14 +3514,43 @@ const Dashboard = ({
                         type="text"
                         placeholder="Search techniques..."
                         className="mitre-search-input"
+                        value={mitreSearchQuery}
+                        onChange={(e) => {
+                          setMitreSearchQuery(e.target.value)
+                          setMitrePage(1)
+                        }}
                       />
                     </div>
 
-                    <div className="mitre-filter-dropdown">
-                      <span>All Tactics</span>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
+                    <div className="process-filter-dropdown-wrapper" style={{ position: 'relative' }}>
+                      <div
+                        className="mitre-filter-dropdown"
+                        onClick={() => setIsMitreFilterOpen(!isMitreFilterOpen)}
+                      >
+                        <span>{mitreTacticFilter}</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </div>
+
+                      {isMitreFilterOpen && (
+                        <div className="process-dropdown-menu" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 25 }}>
+                          {['All Tactics', 'Execution', 'Persistence', 'Defense Evasion', 'Discovery', 'Command and Control', 'Initial Access'].map((tac) => (
+                            <button
+                              key={tac}
+                              type="button"
+                              className={`dropdown-item-btn ${mitreTacticFilter === tac ? 'selected' : ''}`}
+                              onClick={() => {
+                                setMitreTacticFilter(tac)
+                                setIsMitreFilterOpen(false)
+                                setMitrePage(1)
+                              }}
+                            >
+                              {tac}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     <div className="mitre-legend-dots">
@@ -3025,17 +3562,12 @@ const Dashboard = ({
                         <span className="mitre-dot dot-orange"></span>
                         <span>Medium</span>
                       </div>
-                      <div className="mitre-legend-item">
-                        <span className="mitre-dot dot-blue"></span>
-                        <span>Low</span>
-                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Top Tactics Pills Strip (6 items) */}
                 <div className="mitre-tactics-strip">
-                  {/* 1. Initial Access */}
                   <div className="tactic-pill-card">
                     <div className="tactic-icon-wrap icon-red-tint">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3044,12 +3576,11 @@ const Dashboard = ({
                       </svg>
                     </div>
                     <div className="tactic-text-info">
-                      <span className="tactic-count">5</span>
+                      <span className="tactic-count">{tacticCounts['Initial Access']}</span>
                       <span className="tactic-name">Initial Access</span>
                     </div>
                   </div>
 
-                  {/* 2. Execution */}
                   <div className="tactic-pill-card">
                     <div className="tactic-icon-wrap icon-orange-tint">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3059,12 +3590,11 @@ const Dashboard = ({
                       </svg>
                     </div>
                     <div className="tactic-text-info">
-                      <span className="tactic-count">4</span>
+                      <span className="tactic-count">{tacticCounts['Execution']}</span>
                       <span className="tactic-name">Execution</span>
                     </div>
                   </div>
 
-                  {/* 3. Persistence */}
                   <div className="tactic-pill-card">
                     <div className="tactic-icon-wrap icon-blue-tint">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3075,12 +3605,11 @@ const Dashboard = ({
                       </svg>
                     </div>
                     <div className="tactic-text-info">
-                      <span className="tactic-count">3</span>
+                      <span className="tactic-count">{tacticCounts['Persistence']}</span>
                       <span className="tactic-name">Persistence</span>
                     </div>
                   </div>
 
-                  {/* 4. Defense Evasion */}
                   <div className="tactic-pill-card">
                     <div className="tactic-icon-wrap icon-purple-tint">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3088,12 +3617,11 @@ const Dashboard = ({
                       </svg>
                     </div>
                     <div className="tactic-text-info">
-                      <span className="tactic-count">4</span>
+                      <span className="tactic-count">{tacticCounts['Defense Evasion']}</span>
                       <span className="tactic-name">Defense Evasion</span>
                     </div>
                   </div>
 
-                  {/* 5. Discovery */}
                   <div className="tactic-pill-card">
                     <div className="tactic-icon-wrap icon-green-tint">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3105,12 +3633,11 @@ const Dashboard = ({
                       </svg>
                     </div>
                     <div className="tactic-text-info">
-                      <span className="tactic-count">2</span>
+                      <span className="tactic-count">{tacticCounts['Discovery']}</span>
                       <span className="tactic-name">Discovery</span>
                     </div>
                   </div>
 
-                  {/* 6. Other */}
                   <div className="tactic-pill-card">
                     <div className="tactic-icon-wrap icon-grey-tint">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3120,8 +3647,8 @@ const Dashboard = ({
                       </svg>
                     </div>
                     <div className="tactic-text-info">
-                      <span className="tactic-count">3</span>
-                      <span className="tactic-name">Other</span>
+                      <span className="tactic-count">{otherTacticCount + (tacticCounts['Command and Control'] || 0)}</span>
+                      <span className="tactic-name">Other / C2</span>
                     </div>
                   </div>
                 </div>
@@ -3139,112 +3666,64 @@ const Dashboard = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {/* 1 - Selected T1059.003 */}
-                      <tr className="row-selected-mitre">
-                        <td className="mitre-id-bold">T1059.003</td>
-                        <td className="mitre-tech-name font-medium">Command and Scripting Interpreter: Windows Command Shell</td>
-                        <td><span className="badge-tactic-execution">Execution</span></td>
-                        <td>12</td>
-                        <td><span className="badge-severity-high">High</span></td>
-                      </tr>
-
-                      {/* 2 */}
-                      <tr>
-                        <td className="mitre-id-bold">T1547.001</td>
-                        <td className="mitre-tech-name">Registry Run Keys / Startup Folder</td>
-                        <td><span className="badge-tactic-persistence">Persistence</span></td>
-                        <td>8</td>
-                        <td><span className="badge-severity-high">High</span></td>
-                      </tr>
-
-                      {/* 3 */}
-                      <tr>
-                        <td className="mitre-id-bold">T1071.001</td>
-                        <td className="mitre-tech-name">Application Layer Protocol: Web Protocols</td>
-                        <td><span className="badge-tactic-c2">Command and Control</span></td>
-                        <td>6</td>
-                        <td><span className="badge-severity-medium">Medium</span></td>
-                      </tr>
-
-                      {/* 4 */}
-                      <tr>
-                        <td className="mitre-id-bold">T1562.001</td>
-                        <td className="mitre-tech-name">Disable or Modify Tools</td>
-                        <td><span className="badge-tactic-defense">Defense Evasion</span></td>
-                        <td>5</td>
-                        <td><span className="badge-severity-medium">Medium</span></td>
-                      </tr>
-
-                      {/* 5 */}
-                      <tr>
-                        <td className="mitre-id-bold">T1047</td>
-                        <td className="mitre-tech-name">Windows Management Instrumentation</td>
-                        <td><span className="badge-tactic-execution">Execution</span></td>
-                        <td>4</td>
-                        <td><span className="badge-severity-medium">Medium</span></td>
-                      </tr>
-
-                      {/* 6 */}
-                      <tr>
-                        <td className="mitre-id-bold">T1105</td>
-                        <td className="mitre-tech-name">Ingress Tool Transfer</td>
-                        <td><span className="badge-tactic-c2">Command and Control</span></td>
-                        <td>4</td>
-                        <td><span className="badge-severity-medium">Medium</span></td>
-                      </tr>
-
-                      {/* 7 */}
-                      <tr>
-                        <td className="mitre-id-bold">T1082</td>
-                        <td className="mitre-tech-name">System Information Discovery</td>
-                        <td><span className="badge-tactic-discovery">Discovery</span></td>
-                        <td>3</td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-
-                      {/* 8 */}
-                      <tr>
-                        <td className="mitre-id-bold">T1027</td>
-                        <td className="mitre-tech-name">Obfuscated Files or Information</td>
-                        <td><span className="badge-tactic-defense">Defense Evasion</span></td>
-                        <td>3</td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-
-                      {/* 9 */}
-                      <tr>
-                        <td className="mitre-id-bold">T1112</td>
-                        <td className="mitre-tech-name">Modify Registry</td>
-                        <td><span className="badge-tactic-defense">Defense Evasion</span></td>
-                        <td>2</td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
-
-                      {/* 10 */}
-                      <tr>
-                        <td className="mitre-id-bold">T1041</td>
-                        <td className="mitre-tech-name">Exfiltration Over C2 Channel</td>
-                        <td><span className="badge-tactic-exfil">Exfiltration</span></td>
-                        <td>2</td>
-                        <td><span className="badge-severity-low">Low</span></td>
-                      </tr>
+                      {paginatedTechniques.length > 0 ? (
+                        paginatedTechniques.map((tech) => (
+                          <tr
+                            key={tech.id}
+                            className={activeSelectedMitre?.id === tech.id ? 'row-selected-mitre' : ''}
+                            onClick={() => setSelectedMitreId(tech.id)}
+                          >
+                            <td className="mitre-id-bold">{tech.id}</td>
+                            <td className="mitre-tech-name font-medium">{tech.name}</td>
+                            <td><span className={tech.tacticBadgeClass}>{tech.tactic}</span></td>
+                            <td>{tech.evidenceCount}</td>
+                            <td><span className={tech.sevBadgeClass}>{tech.severity}</span></td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="5" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#6B7280' }}>
+                            <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.25rem' }}>No MITRE ATT&amp;CK techniques mapped</p>
+                            <p style={{ fontSize: '0.8rem' }}>No behavioral matches identified for this sample.</p>
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
 
                 {/* Pagination */}
                 <div className="mitre-pagination-footer">
-                  <span className="mitre-pagination-info">Showing 1 to 10 of 21 techniques</span>
+                  <span className="mitre-pagination-info">
+                    Showing {filteredTechniques.length === 0 ? 0 : (mitrePage - 1) * 10 + 1} to {Math.min(mitrePage * 10, filteredTechniques.length)} of {filteredTechniques.length} techniques
+                  </span>
                   <div className="mitre-pagination-controls">
-                    <button type="button" className="btn-page-arrow" disabled>
+                    <button
+                      type="button"
+                      className="btn-page-arrow"
+                      disabled={mitrePage <= 1}
+                      onClick={() => setMitrePage((p) => Math.max(1, p - 1))}
+                    >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="15 18 9 12 15 6" />
                       </svg>
                     </button>
-                    <button type="button" className="btn-page-number active">1</button>
-                    <button type="button" className="btn-page-number">2</button>
-                    <button type="button" className="btn-page-number">3</button>
-                    <button type="button" className="btn-page-arrow">
+                    {Array.from({ length: mitreTotalPages }, (_, i) => i + 1).slice(0, 5).map((pageNo) => (
+                      <button
+                        key={pageNo}
+                        type="button"
+                        className={`btn-page-number ${mitrePage === pageNo ? 'active' : ''}`}
+                        onClick={() => setMitrePage(pageNo)}
+                      >
+                        {pageNo}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="btn-page-arrow"
+                      disabled={mitrePage >= mitreTotalPages}
+                      onClick={() => setMitrePage((p) => Math.min(mitreTotalPages, p + 1))}
+                    >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="9 18 15 12 9 6" />
                       </svg>
@@ -3253,130 +3732,77 @@ const Dashboard = ({
                 </div>
               </div>
 
-              {/* Bottom Inspection Card: Horizontal Layout */}
+              {/* Bottom Inspection Card */}
               <div className="dashboard-card mitre-detail-card">
-                <div className="mitre-detail-split-body">
-                  {/* Left Column: Technique Info */}
-                  <div className="mitre-detail-left-col">
-                    <div className="mitre-detail-header-row">
-                      <div className="mitre-detail-title-group">
-                        <h3 className="mitre-detail-id">T1059.003</h3>
-                        <span className="badge-severity-high">High</span>
+                {activeSelectedMitre ? (
+                  <div className="mitre-detail-split-body">
+                    {/* Left Column: Technique Info */}
+                    <div className="mitre-detail-left-col">
+                      <div className="mitre-detail-header-row">
+                        <div className="mitre-detail-title-group">
+                          <h3 className="mitre-detail-id">{activeSelectedMitre.id}</h3>
+                          <span className={activeSelectedMitre.sevBadgeClass}>{activeSelectedMitre.severity}</span>
+                        </div>
+                        <a
+                          href={activeSelectedMitre.mitreUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mitre-link-icon"
+                          title="View on MITRE ATT&CK"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                            <polyline points="15 3 21 3 21 9" />
+                            <line x1="10" y1="14" x2="21" y2="3" />
+                          </svg>
+                        </a>
                       </div>
-                      <a href="https://attack.mitre.org/techniques/T1059/003/" target="_blank" rel="noreferrer" className="mitre-link-icon" title="View on MITRE ATT&CK">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                          <polyline points="15 3 21 3 21 9" />
-                          <line x1="10" y1="14" x2="21" y2="3" />
-                        </svg>
-                      </a>
-                    </div>
 
-                    <p className="mitre-detail-tech-name">Command and Scripting Interpreter: Windows Command Shell</p>
+                      <p className="mitre-detail-tech-name">{activeSelectedMitre.name}</p>
 
-                    {/* Tactic Tag */}
-                    <div className="mitre-detail-tactic-row">
-                      <span className="mitre-label-txt">Tactic</span>
-                      <span className="badge-tactic-execution">Execution</span>
-                    </div>
+                      <div className="mitre-detail-tactic-row">
+                        <span className="mitre-label-txt">Tactic</span>
+                        <span className={activeSelectedMitre.tacticBadgeClass}>{activeSelectedMitre.tactic}</span>
+                      </div>
 
-                    {/* Description */}
-                    <div className="mitre-detail-desc-block">
-                      <span className="mitre-label-txt">Description</span>
-                      <p className="mitre-desc-paragraph">
-                        Adversaries may abuse Windows command shell for execution of commands and scripts.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Right Column: Evidences */}
-                  <div className="mitre-detail-right-col">
-                    <div className="mitre-evidences-section">
-                  <div className="mitre-evidences-header">
-                    <h5 className="mitre-evidences-title">Evidences (12)</h5>
-                    <button type="button" className="btn-view-all-evidences">
-                      <span>View All</span>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="5" y1="12" x2="19" y2="12" />
-                        <polyline points="12 5 19 12 12 19" />
-                      </svg>
-                    </button>
-                  </div>
-
-                  <div className="mitre-evidence-cards-list">
-                    {/* Evidence 1 */}
-                    <div className="mitre-evidence-item">
-                      <span className="evidence-file-icon">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                          <polyline points="14 2 14 8 20 8" />
-                        </svg>
-                      </span>
-                      <div className="evidence-info-wrap">
-                        <span className="evidence-primary-text">Process created: cmd.exe</span>
-                        <span className="evidence-sub-text">PID: 5184 | 14:22:20</span>
+                      <div className="mitre-detail-desc-block">
+                        <span className="mitre-label-txt">Description</span>
+                        <p className="mitre-desc-paragraph">{activeSelectedMitre.desc}</p>
                       </div>
                     </div>
 
-                    {/* Evidence 2 */}
-                    <div className="mitre-evidence-item">
-                      <span className="evidence-file-icon">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                          <polyline points="14 2 14 8 20 8" />
-                        </svg>
-                      </span>
-                      <div className="evidence-info-wrap">
-                        <span className="evidence-primary-text">Command line</span>
-                        <span className="evidence-sub-text mono-code">cmd.exe /c powershell.exe -enc ...</span>
-                      </div>
-                    </div>
+                    {/* Right Column: Evidences */}
+                    <div className="mitre-detail-right-col">
+                      <div className="mitre-evidences-section">
+                        <div className="mitre-evidences-header">
+                          <h5 className="mitre-evidences-title">Evidences ({activeSelectedMitre.evidenceCount})</h5>
+                        </div>
 
-                    {/* Evidence 3 */}
-                    <div className="mitre-evidence-item">
-                      <span className="evidence-file-icon">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                          <polyline points="14 2 14 8 20 8" />
-                        </svg>
-                      </span>
-                      <div className="evidence-info-wrap">
-                        <span className="evidence-primary-text">Child process: powershell.exe</span>
-                        <span className="evidence-sub-text">PID: 7260 | 14:22:21</span>
-                      </div>
-                    </div>
-
-                    {/* Evidence 4 */}
-                    <div className="mitre-evidence-item">
-                      <span className="evidence-file-icon">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                          <polyline points="14 2 14 8 20 8" />
-                        </svg>
-                      </span>
-                      <div className="evidence-info-wrap">
-                        <span className="evidence-primary-text">Script executed</span>
-                        <span className="evidence-sub-text mono-code">C:\Users\... \temp\script.ps1</span>
-                      </div>
-                    </div>
-
-                    {/* Evidence 5 */}
-                    <div className="mitre-evidence-item">
-                      <span className="evidence-file-icon">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                          <polyline points="14 2 14 8 20 8" />
-                        </svg>
-                      </span>
-                      <div className="evidence-info-wrap">
-                        <span className="evidence-primary-text">Suspicious command</span>
-                        <span className="evidence-sub-text mono-code">... -EncodedCommand ...</span>
-                      </div>
-                    </div>
+                        <div className="mitre-evidence-cards-list">
+                          {activeSelectedMitre.evidences.map((evItem, idx) => (
+                            <div className="mitre-evidence-item" key={idx}>
+                              <span className="evidence-file-icon">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                                  <polyline points="14 2 14 8 20 8" />
+                                </svg>
+                              </span>
+                              <div className="evidence-info-wrap">
+                                <span className="evidence-primary-text">{evItem}</span>
+                                <span className="evidence-sub-text mono-code">Observed behavioral evidence</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '3rem', width: '100%', color: '#6B7280' }}>
+                    <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>No technique selected</p>
+                    <p style={{ fontSize: '0.8rem' }}>Click any technique in the table above to view details and evidence.</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -3414,14 +3840,43 @@ const Dashboard = ({
                         type="text"
                         placeholder="Search IOCs..."
                         className="iocs-search-input"
+                        value={iocSearchQuery}
+                        onChange={(e) => {
+                          setIocSearchQuery(e.target.value)
+                          setIocPage(1)
+                        }}
                       />
                     </div>
 
-                    <div className="iocs-filter-dropdown">
-                      <span>All Types</span>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
+                    <div className="process-filter-dropdown-wrapper" style={{ position: 'relative' }}>
+                      <div
+                        className="iocs-filter-dropdown"
+                        onClick={() => setIsIocFilterOpen(!isIocFilterOpen)}
+                      >
+                        <span>{iocTypeFilter}</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </div>
+
+                      {isIocFilterOpen && (
+                        <div className="process-dropdown-menu" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 25 }}>
+                          {['All Types', 'File Hash (SHA256)', 'IP Address', 'Domain', 'Registry Key', 'Suspicious File'].map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              className={`dropdown-item-btn ${iocTypeFilter === t ? 'selected' : ''}`}
+                              onClick={() => {
+                                setIocTypeFilter(t)
+                                setIsIocFilterOpen(false)
+                                setIocPage(1)
+                              }}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -3441,359 +3896,184 @@ const Dashboard = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {/* 1 - IP Address 185.199.110.43 (SELECTED) */}
-                      <tr className="row-selected-ioc">
-                        <td>
-                          <div className="ioc-type-cell">
-                            <span className="ioc-type-icon text-red">⚠️</span>
-                            <span>IP Address</span>
-                          </div>
-                        </td>
-                        <td className="ioc-val-text font-bold">185.199.110.43</td>
-                        <td><span className="badge-confidence-high">High</span></td>
-                        <td><span className="badge-rep-malicious">Malicious</span></td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td className="ioc-arrow-cell">›</td>
-                      </tr>
-
-                      {/* 2 - Domain api.example.com */}
-                      <tr>
-                        <td>
-                          <div className="ioc-type-cell">
-                            <span className="ioc-type-icon">🌐</span>
-                            <span>Domain</span>
-                          </div>
-                        </td>
-                        <td className="ioc-val-text">api.example.com</td>
-                        <td><span className="badge-confidence-high">High</span></td>
-                        <td><span className="badge-rep-malicious">Malicious</span></td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td className="ioc-arrow-cell">›</td>
-                      </tr>
-
-                      {/* 3 - Domain cdn.example.net */}
-                      <tr>
-                        <td>
-                          <div className="ioc-type-cell">
-                            <span className="ioc-type-icon">🌐</span>
-                            <span>Domain</span>
-                          </div>
-                        </td>
-                        <td className="ioc-val-text">cdn.example.net</td>
-                        <td><span className="badge-confidence-medium">Medium</span></td>
-                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td>Oct 11, 2026, 14:23</td>
-                        <td className="ioc-arrow-cell">›</td>
-                      </tr>
-
-                      {/* 4 - IP Address 91.213.21.34 */}
-                      <tr>
-                        <td>
-                          <div className="ioc-type-cell">
-                            <span className="ioc-type-icon text-red">⚠️</span>
-                            <span>IP Address</span>
-                          </div>
-                        </td>
-                        <td className="ioc-val-text font-mono">91.213.21.34</td>
-                        <td><span className="badge-confidence-medium">Medium</span></td>
-                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td>Oct 11, 2026, 14:23</td>
-                        <td className="ioc-arrow-cell">›</td>
-                      </tr>
-
-                      {/* 5 - URL http://update-microsoft.com/check */}
-                      <tr>
-                        <td>
-                          <div className="ioc-type-cell">
-                            <span className="ioc-type-icon text-red">🔗</span>
-                            <span>URL</span>
-                          </div>
-                        </td>
-                        <td className="ioc-val-text">http://update-microsoft.com/check</td>
-                        <td><span className="badge-confidence-medium">Medium</span></td>
-                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td className="ioc-arrow-cell">›</td>
-                      </tr>
-
-                      {/* 6 - URL hxxp://185.220.101.12/payload */}
-                      <tr>
-                        <td>
-                          <div className="ioc-type-cell">
-                            <span className="ioc-type-icon text-red">🔗</span>
-                            <span>URL</span>
-                          </div>
-                        </td>
-                        <td className="ioc-val-text">hxxp://185.220.101.12/payload</td>
-                        <td><span className="badge-confidence-high">High</span></td>
-                        <td><span className="badge-rep-malicious">Malicious</span></td>
-                        <td>Oct 11, 2026, 14:23</td>
-                        <td>Oct 11, 2026, 14:23</td>
-                        <td className="ioc-arrow-cell">›</td>
-                      </tr>
-
-                      {/* 7 - File Hash (SHA256) */}
-                      <tr>
-                        <td>
-                          <div className="ioc-type-cell">
-                            <span className="ioc-type-icon text-red">📄</span>
-                            <span>File Hash (SHA256)</span>
-                          </div>
-                        </td>
-                        <td className="ioc-val-text font-mono truncate-ioc-hash">c6b2d9f4a1e8c3d7b0f5a9e2c4d6a7f...</td>
-                        <td><span className="badge-confidence-high">High</span></td>
-                        <td><span className="badge-rep-malicious">Malicious</span></td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td className="ioc-arrow-cell">›</td>
-                      </tr>
-
-                      {/* 8 - File Hash (MD5) */}
-                      <tr>
-                        <td>
-                          <div className="ioc-type-cell">
-                            <span className="ioc-type-icon text-red">📄</span>
-                            <span>File Hash (MD5)</span>
-                          </div>
-                        </td>
-                        <td className="ioc-val-text font-mono">5f2a3c9d4e7b1a8c6d0e2f1a3b4c5d6e</td>
-                        <td><span className="badge-confidence-medium">Medium</span></td>
-                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td className="ioc-arrow-cell">›</td>
-                      </tr>
-
-                      {/* 9 - Mutex */}
-                      <tr>
-                        <td>
-                          <div className="ioc-type-cell">
-                            <span className="ioc-type-icon text-red">🔄</span>
-                            <span>Mutex</span>
-                          </div>
-                        </td>
-                        <td className="ioc-val-text font-mono">Global\{'{'}F3A7B1C2-9D44{'}'}</td>
-                        <td><span className="badge-confidence-medium">Medium</span></td>
-                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td className="ioc-arrow-cell">›</td>
-                      </tr>
-
-                      {/* 10 - Registry Key */}
-                      <tr>
-                        <td>
-                          <div className="ioc-type-cell">
-                            <span className="ioc-type-icon text-red">🔀</span>
-                            <span>Registry Key</span>
-                          </div>
-                        </td>
-                        <td className="ioc-val-text font-mono truncate-ioc-hash">HKCU\Software\Microsoft\Windows\...</td>
-                        <td><span className="badge-confidence-medium">Medium</span></td>
-                        <td><span className="badge-rep-suspicious">Suspicious</span></td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td className="ioc-arrow-cell">›</td>
-                      </tr>
-
-                      {/* 11 - Domain track.example.org */}
-                      <tr>
-                        <td>
-                          <div className="ioc-type-cell">
-                            <span className="ioc-type-icon">🌐</span>
-                            <span>Domain</span>
-                          </div>
-                        </td>
-                        <td className="ioc-val-text">track.example.org</td>
-                        <td><span className="badge-confidence-low">Low</span></td>
-                        <td><span className="badge-rep-unknown">Unknown</span></td>
-                        <td>Oct 11, 2026, 14:23</td>
-                        <td>Oct 11, 2026, 14:23</td>
-                        <td className="ioc-arrow-cell">›</td>
-                      </tr>
-
-                      {/* 12 - IP Address 8.8.8.8 */}
-                      <tr>
-                        <td>
-                          <div className="ioc-type-cell">
-                            <span className="ioc-type-icon text-red">⚠️</span>
-                            <span>IP Address</span>
-                          </div>
-                        </td>
-                        <td className="ioc-val-text font-mono">8.8.8.8</td>
-                        <td><span className="badge-confidence-low">Low</span></td>
-                        <td><span className="badge-rep-benign">Benign</span></td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td>Oct 11, 2026, 14:22</td>
-                        <td className="ioc-arrow-cell">›</td>
-                      </tr>
+                      {paginatedIOCs.length > 0 ? (
+                        paginatedIOCs.map((ioc) => (
+                          <tr
+                            key={ioc.id}
+                            className={activeSelectedIoc?.id === ioc.id ? 'row-selected-ioc' : ''}
+                            onClick={() => setSelectedIocIndex(ioc.id)}
+                          >
+                            <td>
+                              <div className="ioc-type-cell">
+                                <span className={`ioc-type-icon ${ioc.reputation === 'Malicious' ? 'text-red' : ''}`}>{ioc.typeIcon}</span>
+                                <span>{ioc.type}</span>
+                              </div>
+                            </td>
+                            <td className={`ioc-val-text ${activeSelectedIoc?.id === ioc.id ? 'font-bold' : ''} ${ioc.type.includes('Hash') || ioc.type.includes('IP') || ioc.type.includes('Registry') ? 'font-mono' : ''}`}>
+                              {ioc.value}
+                            </td>
+                            <td><span className={ioc.confidenceBadge}>{ioc.confidence}</span></td>
+                            <td><span className={ioc.repBadge}>{ioc.reputation}</span></td>
+                            <td>{ioc.firstSeen}</td>
+                            <td>{ioc.lastSeen}</td>
+                            <td className="ioc-arrow-cell">›</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="7" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#6B7280' }}>
+                            <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.25rem' }}>No IOCs found</p>
+                            <p style={{ fontSize: '0.8rem' }}>No indicators of compromise match your current filter.</p>
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
 
                 <div className="iocs-table-footer">
-                  <span className="iocs-pagination-info">Showing 1 to 12 of 12 IOCs</span>
+                  <span className="iocs-pagination-info">
+                    Showing {filteredIOCs.length === 0 ? 0 : (iocPage - 1) * 10 + 1} to {Math.min(iocPage * 10, filteredIOCs.length)} of {filteredIOCs.length} IOCs
+                  </span>
                 </div>
               </div>
 
-              {/* Bottom Inspection Card: Horizontal Layout */}
+              {/* Bottom Inspection Card */}
               <div className="dashboard-card iocs-detail-card">
-                {/* Header */}
-                <div className="ioc-detail-header-row">
-                  <div className="ioc-detail-title-group">
-                    <span className="ioc-lead-red-icon">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="18" cy="5" r="3" />
-                        <circle cx="6" cy="12" r="3" />
-                        <circle cx="18" cy="19" r="3" />
-                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                      </svg>
-                    </span>
-                    <div>
-                      <div className="ioc-header-ip-badge-wrap">
-                        <h4 className="ioc-detail-ip">185.199.110.43</h4>
-                        <span className="badge-rep-malicious">Malicious</span>
-                      </div>
-                      <span className="ioc-detail-subtitle">Type: IP Address</span>
-                    </div>
-                  </div>
-                  <button type="button" className="btn-close-ioc-detail" title="Close">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
-                </div>
-
-                {/* Horizontal 3-Column Body */}
-                <div className="ioc-detail-horizontal-body">
-                  {/* Column 1: Reputation specs */}
-                  <div className="ioc-detail-col">
-                    <h5 className="ioc-section-title">Reputation</h5>
-                    <div className="ioc-kv-list">
-                      <div className="ioc-kv-row">
-                        <span className="ioc-kv-key">Threat Intelligence</span>
-                        <span className="badge-rep-malicious">Malicious</span>
-                      </div>
-                      <div className="ioc-kv-row">
-                        <span className="ioc-kv-key">Confidence</span>
-                        <span className="badge-confidence-high">High</span>
-                      </div>
-                      <div className="ioc-kv-row">
-                        <span className="ioc-kv-key">First Seen</span>
-                        <span className="ioc-kv-val">Oct 11, 2026, 14:22:10</span>
-                      </div>
-                      <div className="ioc-kv-row">
-                        <span className="ioc-kv-key">Last Seen</span>
-                        <span className="ioc-kv-val">Oct 11, 2026, 14:22:45</span>
-                      </div>
-                      <div className="ioc-kv-row">
-                        <span className="ioc-kv-key">Observation Count</span>
-                        <span className="ioc-kv-val font-semibold">7</span>
-                      </div>
-                      <div className="ioc-kv-row">
-                        <span className="ioc-kv-key">ASN</span>
-                        <span className="ioc-kv-val">AS16276 (OVH SAS)</span>
-                      </div>
-                      <div className="ioc-kv-row">
-                        <span className="ioc-kv-key">Country</span>
-                        <span className="ioc-kv-val country-val">
-                          <span className="flag-fr">🇫🇷</span> France
+                {activeSelectedIoc ? (
+                  <>
+                    <div className="ioc-detail-header-row">
+                      <div className="ioc-detail-title-group">
+                        <span className="ioc-lead-red-icon">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="18" cy="5" r="3" />
+                            <circle cx="6" cy="12" r="3" />
+                            <circle cx="18" cy="19" r="3" />
+                            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                          </svg>
                         </span>
+                        <div>
+                          <div className="ioc-header-ip-badge-wrap">
+                            <h4 className="ioc-detail-ip">{activeSelectedIoc.value}</h4>
+                            <span className={activeSelectedIoc.repBadge}>{activeSelectedIoc.reputation}</span>
+                          </div>
+                          <span className="ioc-detail-subtitle">Type: {activeSelectedIoc.type}</span>
+                        </div>
                       </div>
-                      <div className="ioc-kv-row">
-                        <span className="ioc-kv-key">Organization</span>
-                        <span className="ioc-kv-val">OVH SAS</span>
+                      <button
+                        type="button"
+                        className="btn-close-ioc-detail"
+                        title="Close"
+                        onClick={() => setSelectedIocIndex(null)}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    <div className="ioc-detail-horizontal-body">
+                      {/* Column 1: Specs */}
+                      <div className="ioc-detail-col">
+                        <h5 className="ioc-section-title">Assessment</h5>
+                        <div className="ioc-kv-list">
+                          <div className="ioc-kv-row">
+                            <span className="ioc-kv-key">Verdict</span>
+                            <span className={activeSelectedIoc.repBadge}>{activeSelectedIoc.reputation}</span>
+                          </div>
+                          <div className="ioc-kv-row">
+                            <span className="ioc-kv-key">Confidence</span>
+                            <span className={activeSelectedIoc.confidenceBadge}>{activeSelectedIoc.confidence}</span>
+                          </div>
+                          <div className="ioc-kv-row">
+                            <span className="ioc-kv-key">Observation Count</span>
+                            <span className="ioc-kv-val font-semibold">{activeSelectedIoc.count}</span>
+                          </div>
+                          <div className="ioc-kv-row">
+                            <span className="ioc-kv-key">Source</span>
+                            <span className="ioc-kv-val">{activeSelectedIoc.asn}</span>
+                          </div>
+                          <div className="ioc-kv-row">
+                            <span className="ioc-kv-key">Context</span>
+                            <span className="ioc-kv-val">{activeSelectedIoc.org}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Column 2: Associated Telemetry */}
+                      <div className="ioc-detail-col">
+                        <h5 className="ioc-section-title">Associated Telemetry</h5>
+                        <div className="ioc-artifacts-list">
+                          <div className="ioc-artifact-row">
+                            <div className="ioc-art-left">
+                              <span className="ioc-art-icon">🌐</span>
+                              <span className="ioc-art-name">Domains Observed</span>
+                            </div>
+                            <div className="ioc-art-right">
+                              <span className="ioc-art-count">{sample.dnsCount || 0}</span>
+                              <span className="ioc-art-arrow">›</span>
+                            </div>
+                          </div>
+                          <div className="ioc-artifact-row">
+                            <div className="ioc-art-left">
+                              <span className="ioc-art-icon">📄</span>
+                              <span className="ioc-art-name">Files Touched</span>
+                            </div>
+                            <div className="ioc-art-right">
+                              <span className="ioc-art-count">{sample.fileCount || 0}</span>
+                              <span className="ioc-art-arrow">›</span>
+                            </div>
+                          </div>
+                          <div className="ioc-artifact-row">
+                            <div className="ioc-art-left">
+                              <span className="ioc-art-icon">⚙️</span>
+                              <span className="ioc-art-name">Processes Active</span>
+                            </div>
+                            <div className="ioc-art-right">
+                              <span className="ioc-art-count">{sample.processCount || 1}</span>
+                              <span className="ioc-art-arrow">›</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Column 3: Threat Intelligence Sources */}
+                      <div className="ioc-detail-col">
+                        <h5 className="ioc-section-title">Threat Intelligence Feeds</h5>
+                        <div className="ioc-ti-sources-list">
+                          <div className="ioc-ti-source-row">
+                            <div className="ti-source-left">
+                              <span className="ti-source-icon text-blue">🛡️</span>
+                              <span className="ti-source-name">ThreatBox Engine</span>
+                            </div>
+                            <span className={activeSelectedIoc.repBadge}>{activeSelectedIoc.reputation}</span>
+                          </div>
+                          <div className="ioc-ti-source-row">
+                            <div className="ti-source-left">
+                              <span className="ti-source-icon text-green">🔍</span>
+                              <span className="ti-source-name">Sandbox Score</span>
+                            </div>
+                            <span className="badge-vt-score">{sample.score} / 100</span>
+                          </div>
+                          <div className="ioc-ti-source-row">
+                            <div className="ti-source-left">
+                              <span className="ti-source-icon text-purple">🟣</span>
+                              <span className="ti-source-name">Severity Match</span>
+                            </div>
+                            <span className={activeSelectedIoc.repBadge}>{activeSelectedIoc.confidence}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
+                  </>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '3rem', width: '100%', color: '#6B7280' }}>
+                    <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>No IOC selected</p>
+                    <p style={{ fontSize: '0.8rem' }}>Click any row in the indicators table above to inspect threat details.</p>
                   </div>
-
-                  {/* Column 2: Associated Artifacts */}
-                  <div className="ioc-detail-col">
-                    <h5 className="ioc-section-title">Associated Artifacts</h5>
-                    <div className="ioc-artifacts-list">
-                      <div className="ioc-artifact-row">
-                        <div className="ioc-art-left">
-                          <span className="ioc-art-icon">🌐</span>
-                          <span className="ioc-art-name">Domains</span>
-                        </div>
-                        <div className="ioc-art-right">
-                          <span className="ioc-art-count">2</span>
-                          <span className="ioc-art-arrow">›</span>
-                        </div>
-                      </div>
-
-                      <div className="ioc-artifact-row">
-                        <div className="ioc-art-left">
-                          <span className="ioc-art-icon">🔗</span>
-                          <span className="ioc-art-name">URLs</span>
-                        </div>
-                        <div className="ioc-art-right">
-                          <span className="ioc-art-count">1</span>
-                          <span className="ioc-art-arrow">›</span>
-                        </div>
-                      </div>
-
-                      <div className="ioc-artifact-row">
-                        <div className="ioc-art-left">
-                          <span className="ioc-art-icon">📄</span>
-                          <span className="ioc-art-name">Files</span>
-                        </div>
-                        <div className="ioc-art-right">
-                          <span className="ioc-art-count">1</span>
-                          <span className="ioc-art-arrow">›</span>
-                        </div>
-                      </div>
-
-                      <div className="ioc-artifact-row">
-                        <div className="ioc-art-left">
-                          <span className="ioc-art-icon">⚙️</span>
-                          <span className="ioc-art-name">Processes</span>
-                        </div>
-                        <div className="ioc-art-right">
-                          <span className="ioc-art-count">3</span>
-                          <span className="ioc-art-arrow">›</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Column 3: Threat Intelligence Sources */}
-                  <div className="ioc-detail-col">
-                    <h5 className="ioc-section-title">Threat Intelligence Sources</h5>
-                    <div className="ioc-ti-sources-list">
-                      <div className="ioc-ti-source-row">
-                        <div className="ti-source-left">
-                          <span className="ti-source-icon text-blue">🛡️</span>
-                          <span className="ti-source-name">AlienVault OTX</span>
-                        </div>
-                        <span className="badge-rep-malicious">Malicious</span>
-                      </div>
-
-                      <div className="ioc-ti-source-row">
-                        <div className="ti-source-left">
-                          <span className="ti-source-icon text-green">🔍</span>
-                          <span className="ti-source-name">VirusTotal</span>
-                        </div>
-                        <span className="badge-vt-score">2 / 89</span>
-                      </div>
-
-                      <div className="ioc-ti-source-row">
-                        <div className="ti-source-left">
-                          <span className="ti-source-icon text-purple">🟣</span>
-                          <span className="ti-source-name">AbuseIPDB</span>
-                        </div>
-                        <span className="badge-rep-malicious">Malicious</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           )}
@@ -3832,14 +4112,43 @@ const Dashboard = ({
                         type="text"
                         placeholder="Search events..."
                         className="raw-search-input"
+                        value={rawSearchQuery}
+                        onChange={(e) => {
+                          setRawSearchQuery(e.target.value)
+                          setRawPage(1)
+                        }}
                       />
                     </div>
 
-                    <div className="raw-filter-dropdown">
-                      <span>All Event Types</span>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
+                    <div className="process-filter-dropdown-wrapper" style={{ position: 'relative' }}>
+                      <div
+                        className="raw-filter-dropdown"
+                        onClick={() => setIsRawFilterOpen(!isRawFilterOpen)}
+                      >
+                        <span>{rawEventTypeFilter}</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </div>
+
+                      {isRawFilterOpen && (
+                        <div className="process-dropdown-menu" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 25 }}>
+                          {['All Event Types', 'process_create', 'file_create', 'file_modify', 'file_delete', 'network_connect', 'dns_query', 'registry_set', 'module_load'].map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              className={`dropdown-item-btn ${rawEventTypeFilter === t ? 'selected' : ''}`}
+                              onClick={() => {
+                                setRawEventTypeFilter(t)
+                                setIsRawFilterOpen(false)
+                                setRawPage(1)
+                              }}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -3857,134 +4166,64 @@ const Dashboard = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {/* 1 - SELECTED */}
-                      <tr className="row-selected-raw">
-                        <td className="raw-num-col">1</td>
-                        <td className="raw-time-col">14:22:10.123</td>
-                        <td className="raw-type-col">process_create</td>
-                        <td className="raw-source-col">sysmon</td>
-                        <td className="raw-details-col font-medium">sample_malware.exe (PID 4320)</td>
-                      </tr>
-
-                      {/* 2 */}
-                      <tr>
-                        <td className="raw-num-col">2</td>
-                        <td className="raw-time-col">14:22:10.245</td>
-                        <td className="raw-type-col">file_create</td>
-                        <td className="raw-source-col">procmon</td>
-                        <td className="raw-details-col font-mono">C:\Users\WDAGUtilityAccount\AppData\Ro...</td>
-                      </tr>
-
-                      {/* 3 */}
-                      <tr>
-                        <td className="raw-num-col">3</td>
-                        <td className="raw-time-col">14:22:11.011</td>
-                        <td className="raw-type-col">registry_set</td>
-                        <td className="raw-source-col">procmon</td>
-                        <td className="raw-details-col font-mono">HKCU\Software\Microsoft\Windows\Curr...</td>
-                      </tr>
-
-                      {/* 4 */}
-                      <tr>
-                        <td className="raw-num-col">4</td>
-                        <td className="raw-time-col">14:22:11.436</td>
-                        <td className="raw-type-col">network_connect</td>
-                        <td className="raw-source-col">netmon</td>
-                        <td className="raw-details-col font-mono">185.199.110.43:443 (HTTPS)</td>
-                      </tr>
-
-                      {/* 5 */}
-                      <tr>
-                        <td className="raw-num-col">5</td>
-                        <td className="raw-time-col">14:22:12.089</td>
-                        <td className="raw-type-col">dns_query</td>
-                        <td className="raw-source-col">dnscap</td>
-                        <td className="raw-details-col">api.example.com (A)</td>
-                      </tr>
-
-                      {/* 6 */}
-                      <tr>
-                        <td className="raw-num-col">6</td>
-                        <td className="raw-time-col">14:22:12.412</td>
-                        <td className="raw-type-col">file_write</td>
-                        <td className="raw-source-col">procmon</td>
-                        <td className="raw-details-col font-mono">C:\Windows\Temp\payload.dll</td>
-                      </tr>
-
-                      {/* 7 */}
-                      <tr>
-                        <td className="raw-num-col">7</td>
-                        <td className="raw-time-col">14:22:13.005</td>
-                        <td className="raw-type-col">module_load</td>
-                        <td className="raw-source-col">sysmon</td>
-                        <td className="raw-details-col font-mono">payload.dll (0x7ffb2a000000)</td>
-                      </tr>
-
-                      {/* 8 */}
-                      <tr>
-                        <td className="raw-num-col">8</td>
-                        <td className="raw-time-col">14:22:13.521</td>
-                        <td className="raw-type-col">process_create</td>
-                        <td className="raw-source-col">sysmon</td>
-                        <td className="raw-details-col">powershell.exe (PID 7260)</td>
-                      </tr>
-
-                      {/* 9 */}
-                      <tr>
-                        <td className="raw-num-col">9</td>
-                        <td className="raw-time-col">14:22:13.998</td>
-                        <td className="raw-type-col">file_create</td>
-                        <td className="raw-source-col">procmon</td>
-                        <td className="raw-details-col font-mono">C:\Users\WDAGUtilityAccount\AppData\Lo...</td>
-                      </tr>
-
-                      {/* 10 */}
-                      <tr>
-                        <td className="raw-num-col">10</td>
-                        <td className="raw-time-col">14:22:14.662</td>
-                        <td className="raw-type-col">network_connect</td>
-                        <td className="raw-source-col">netmon</td>
-                        <td className="raw-details-col font-mono">91.213.21.34:53 (DNS)</td>
-                      </tr>
-
-                      {/* 11 */}
-                      <tr>
-                        <td className="raw-num-col">11</td>
-                        <td className="raw-time-col">14:22:15.210</td>
-                        <td className="raw-type-col">registry_set</td>
-                        <td className="raw-source-col">procmon</td>
-                        <td className="raw-details-col font-mono">HKCU\Software\Microsoft\Windows\Curr...</td>
-                      </tr>
-
-                      {/* 12 */}
-                      <tr>
-                        <td className="raw-num-col">12</td>
-                        <td className="raw-time-col">14:22:16.334</td>
-                        <td className="raw-type-col">process_terminate</td>
-                        <td className="raw-source-col">sysmon</td>
-                        <td className="raw-details-col font-medium">sample_malware.exe (PID 4320)</td>
-                      </tr>
+                      {paginatedRawEvents.length > 0 ? (
+                        paginatedRawEvents.map((ev) => (
+                          <tr
+                            key={ev.id}
+                            className={activeSelectedRaw?.id === ev.id ? 'row-selected-raw' : ''}
+                            onClick={() => setSelectedRawIndex(ev.id)}
+                          >
+                            <td className="raw-num-col">{ev.rawId}</td>
+                            <td className="raw-time-col">{ev.time}</td>
+                            <td className="raw-type-col">{ev.eventType}</td>
+                            <td className="raw-source-col">{ev.source}</td>
+                            <td className="raw-details-col font-medium">{ev.details}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="5" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#6B7280' }}>
+                            <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.25rem' }}>No events found</p>
+                            <p style={{ fontSize: '0.8rem' }}>No telemetry events match your search query.</p>
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
 
                 {/* Pagination */}
                 <div className="raw-pagination-footer">
-                  <span className="raw-pagination-info">Showing 1 to 12 of 342 events</span>
+                  <span className="raw-pagination-info">
+                    Showing {filteredRawEvents.length === 0 ? 0 : (rawPage - 1) * 12 + 1} to {Math.min(rawPage * 12, filteredRawEvents.length)} of {filteredRawEvents.length} events
+                  </span>
                   <div className="raw-pagination-controls">
-                    <button type="button" className="btn-page-arrow" disabled>
+                    <button
+                      type="button"
+                      className="btn-page-arrow"
+                      disabled={rawPage <= 1}
+                      onClick={() => setRawPage((p) => Math.max(1, p - 1))}
+                    >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="15 18 9 12 15 6" />
                       </svg>
                     </button>
-                    <button type="button" className="btn-page-number active">1</button>
-                    <button type="button" className="btn-page-number">2</button>
-                    <button type="button" className="btn-page-number">3</button>
-                    <button type="button" className="btn-page-number">4</button>
-                    <button type="button" className="btn-page-number">5</button>
-                    <span className="page-ellipsis">...</span>
-                    <button type="button" className="btn-page-number">29</button>
-                    <button type="button" className="btn-page-arrow">
+                    {Array.from({ length: rawTotalPages }, (_, i) => i + 1).slice(0, 5).map((pageNo) => (
+                      <button
+                        key={pageNo}
+                        type="button"
+                        className={`btn-page-number ${rawPage === pageNo ? 'active' : ''}`}
+                        onClick={() => setRawPage(pageNo)}
+                      >
+                        {pageNo}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="btn-page-arrow"
+                      disabled={rawPage >= rawTotalPages}
+                      onClick={() => setRawPage((p) => Math.min(rawTotalPages, p + 1))}
+                    >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="9 18 15 12 9 6" />
                       </svg>
@@ -4008,43 +4247,29 @@ const Dashboard = ({
                       </span>
                       <h4 className="raw-detail-title">Event Details</h4>
                     </div>
-                    <button type="button" className="btn-close-raw-detail" title="Close">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    </button>
                   </div>
 
                   <div className="raw-kv-list">
                     <div className="raw-kv-row">
                       <span className="raw-kv-key">Event Type</span>
-                      <span className="badge-event-type">process_create</span>
+                      <span className="badge-event-type">{activeSelectedRaw?.eventType || 'N/A'}</span>
                     </div>
                     <div className="raw-kv-row">
                       <span className="raw-kv-key">Timestamp</span>
-                      <span className="raw-kv-val">Oct 11, 2026, 14:22:10.123</span>
+                      <span className="raw-kv-val">{activeSelectedRaw?.time || 'N/A'}</span>
                     </div>
                     <div className="raw-kv-row">
                       <span className="raw-kv-key">Source</span>
-                      <span className="raw-kv-val">sysmon</span>
-                    </div>
-                    <div className="raw-kv-row">
-                      <span className="raw-kv-key">Event ID</span>
-                      <span className="raw-kv-val">1</span>
+                      <span className="raw-kv-val">{activeSelectedRaw?.source || 'N/A'}</span>
                     </div>
                     <div className="raw-kv-row">
                       <span className="raw-kv-key">Process</span>
-                      <span className="raw-kv-val">sample_malware.exe (PID 4320)</span>
-                    </div>
-                    <div className="raw-kv-row">
-                      <span className="raw-kv-key">User</span>
-                      <span className="raw-kv-val">WDAGUtilityAccount</span>
+                      <span className="raw-kv-val">{activeSelectedRaw?.process || sample.fileName}</span>
                     </div>
                     <div className="raw-kv-row align-start">
-                      <span className="raw-kv-key">Command Line</span>
+                      <span className="raw-kv-key">Command / Target</span>
                       <div className="raw-cmd-box">
-                        <span>"C:\Users\WDAGUtilityAccount\Desktop\sample_malware.exe"</span>
+                        <span>{activeSelectedRaw?.cmd || activeSelectedRaw?.details || 'N/A'}</span>
                       </div>
                     </div>
                   </div>
@@ -4062,7 +4287,12 @@ const Dashboard = ({
                       </span>
                       <h4 className="raw-detail-title">Raw Event Data (JSON)</h4>
                     </div>
-                    <button type="button" className="btn-copy-raw-json" title="Copy JSON">
+                    <button
+                      type="button"
+                      className="btn-copy-raw-json"
+                      title="Copy JSON"
+                      onClick={() => handleCopyRawJson(activeSelectedRaw?.rawObj || sample.rawJson)}
+                    >
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
@@ -4070,28 +4300,12 @@ const Dashboard = ({
                     </button>
                   </div>
 
-                  {/* JSON Code Viewer with Syntax Coloring */}
                   <div className="raw-json-viewer-container">
                     <pre className="raw-json-pre">
                       <code>
-                        {sample.rawJson || `{
-  "event_id": 1,
-  "timestamp": "2026-10-11T14:22:10.123Z",
-  "event_type": "process_create",
-  "source": "sysmon",
-  "process": {
-    "pid": 4320,
-    "name": "${sample.fileName}",
-    "path": "C:\\\\ThreatBox\\\\sample\\\\${sample.fileName}",
-    "command_line": "C:\\\\ThreatBox\\\\sample\\\\${sample.fileName}",
-    "parent_pid": 3216,
-    "parent_name": "explorer.exe",
-    "user": "WDAGUtilityAccount"
-  },
-  "hashes": {
-    "sha256": "${sample.sha256}"
-  }
-}`}
+                        {activeSelectedRaw?.rawObj
+                          ? JSON.stringify(activeSelectedRaw.rawObj, null, 2)
+                          : (sample.rawJson || 'No JSON event payload available.')}
                       </code>
                     </pre>
                   </div>

@@ -48,6 +48,7 @@ function App() {
           onNavigateUpload={() => setCurrentPage('upload')}
           onNavigateDashboard={() => setCurrentPage('dashboard')}
           onSelectSample={handleOpenSampleReport}
+          onNavigateTab={handleSidebarNavigate}
         />
       )}
     </div>

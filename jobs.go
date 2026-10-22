@@ -64,11 +64,15 @@ func UpdateStatus(db *pgxpool.Pool, jobID string, status string) error {
 }
 
 type JobDashboardResponse struct {
-	ID             string           `json:"id"`
-	Filename       string           `json:"filename"`
-	Status         string           `json:"status"`
-	CreatedAt      time.Time        `json:"created_at"`
-	Score          *int             `json:"score,omitempty"`
+	ID          string     `json:"id"`
+	Filename    string     `json:"filename"`
+	Status      string     `json:"status"`
+	CreatedAt   time.Time  `json:"created_at"`
+	Score       *int       `json:"score,omitempty"`
+	SHA256      string     `json:"sha256,omitempty"`
+	FileSize    int64      `json:"file_size,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
 type JobDetailsResponse struct {
@@ -81,7 +85,7 @@ func GetJobDetails(db *pgxpool.Pool, jobID string) (JobDetailsResponse, error) {
 
 	err := db.QueryRow(
 		context.Background(),
-		`SELECT j.job_id, s.original_filename, j.status, j.created_at
+		`SELECT j.job_id, s.original_filename, s.sha256, s.file_size, j.status, j.created_at
 		 FROM jobs j
 		 JOIN samples s ON j.file_id = s.sample_id
 		 WHERE j.job_id = $1`,
@@ -89,6 +93,8 @@ func GetJobDetails(db *pgxpool.Pool, jobID string) (JobDetailsResponse, error) {
 	).Scan(
 		&resp.ID,
 		&resp.Filename,
+		&resp.SHA256,
+		&resp.FileSize,
 		&resp.Status,
 		&resp.CreatedAt,
 	)
@@ -97,17 +103,17 @@ func GetJobDetails(db *pgxpool.Pool, jobID string) (JobDetailsResponse, error) {
 		return JobDetailsResponse{}, err
 	}
 	
-	// Try to get analysis result data
+	// Try to get analysis result data and timestamps
 	var resultData []byte
 	err = db.QueryRow(
 		context.Background(),
-		`SELECT result_data
+		`SELECT started_at, completed_at, result_data
 		 FROM analysis_results
 		 WHERE job_id = $1
 		 ORDER BY completed_at DESC NULLS LAST, started_at DESC NULLS LAST
 		 LIMIT 1`,
 		jobID,
-	).Scan(&resultData)
+	).Scan(&resp.StartedAt, &resp.CompletedAt, &resultData)
 	
 	if err == nil && len(resultData) > 0 {
 		raw := json.RawMessage(resultData)
@@ -157,12 +163,25 @@ func GetJob(db *pgxpool.Pool, jobID string) (storage.Job, error) {
 func GetMultipleJobs(db *pgxpool.Pool) ([]JobDashboardResponse, error) {
 	rows, err := db.Query(
 		context.Background(),
-		`SELECT j.job_id, s.original_filename, j.status, j.created_at, 
-		        (ar.result_data->'threat_score'->>'score')::int as score
-		 FROM jobs j
-		 JOIN samples s ON j.file_id = s.sample_id
-		 LEFT JOIN analysis_results ar ON ar.job_id = j.job_id
-		 ORDER BY j.created_at DESC`,
+		`SELECT t.job_id, t.original_filename, t.sha256, t.file_size, t.status, t.created_at,
+		        t.started_at, t.completed_at, t.score
+		 FROM (
+		     SELECT DISTINCT ON (j.job_id)
+		         j.job_id,
+		         s.original_filename,
+		         s.sha256,
+		         s.file_size,
+		         j.status,
+		         j.created_at,
+		         ar.started_at,
+		         ar.completed_at,
+		         (ar.result_data->'threat_score'->>'score')::int as score
+		     FROM jobs j
+		     JOIN samples s ON j.file_id = s.sample_id
+		     LEFT JOIN analysis_results ar ON ar.job_id = j.job_id
+		     ORDER BY j.job_id, ar.completed_at DESC NULLS LAST, ar.started_at DESC NULLS LAST
+		 ) t
+		 ORDER BY t.created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -177,8 +196,12 @@ func GetMultipleJobs(db *pgxpool.Pool) ([]JobDashboardResponse, error) {
 		err := rows.Scan(
 			&job.ID,
 			&job.Filename,
+			&job.SHA256,
+			&job.FileSize,
 			&job.Status,
 			&job.CreatedAt,
+			&job.StartedAt,
+			&job.CompletedAt,
 			&job.Score,
 		)
 		if err != nil {

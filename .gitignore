@@ -60,3 +60,5 @@ Thumbs.db
 Desktop.ini
 .idea/
 .vscode/
+
+*.ai-backup
