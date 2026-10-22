@@ -1,32 +1,62 @@
-# Environment variables
+# Secrets and local configuration
 .env
+.env.*
+!.env.example
 
-# User data
-/uploads
-/data
+# User uploads and local runtime data
+/uploads/
+/runtime/jobs/
+/runtime/sample/
 
-# Temp/Command files
-command.txt
+# Local data and databases (keep the MITRE dataset required by the app)
+/data/*
+!/data/mitre-data/
+/data/mitre-data/*
+!/data/mitre-data/enterprise-attack.json
+*.db
+*.sqlite
+*.sqlite3
 
-# Go binaries and build output
+# Build outputs and compiled binaries
 /bin/
 *.exe
 *.dll
+*.test
+*.out
+/tools/*.exe
 
-# Frontend
-frontend/node_modules/
-frontend/dist/
+# Frontend dependencies and build output
+/frontend/node_modules/
+/frontend/dist/
+/frontend/build/
 
-# Databases
-*.db
-*.sqlite
+# Local scratch copies and generated archives
+/.threatbox-ai-hardening/
+/threatbox_ai_hardening/
+*.zip
 
-# OS Files
+# Backup and temporary files
+*.bak
+*.bak-*
+*.backup
+*.backup-*
+*.safety-backup
+*.new
+*.old
+*.orig
+*.tmp
+*.temp
+*~
+
+# Local command files, logs, and coverage output
+command.txt
+*.log
+coverage.out
+coverage.html
+
+# OS/editor files
 .DS_Store
 Thumbs.db
-
-# Generated Sandbox build artifacts
-/bin/sandbox-tools/
-
-# Per-job Sandbox workspaces, telemetry and logs
-/runtime/jobs/
+Desktop.ini
+.idea/
+.vscode/

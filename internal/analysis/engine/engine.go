@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aasimkhan02/ThreatBox/internal/analysis"
 	"github.com/aasimkhan02/ThreatBox/internal/analysis/ioc"
@@ -32,10 +33,61 @@ type telemetry struct {
 	ImageEvents    []*analysis.Event
 
 	FileNames       map[uint64]string
-	ThreadToProcess map[uint64]uint64
 	LostEvents      uint64
 	ProcessSeq      map[*analysis.ProcessNode]int
+	ThreadToProcess map[uint64]uint64 // retained for compatibility; never used for historical attribution
 	Root            SampleRootInfo
+
+	ProcessEvents     []*analysis.Event
+	ThreadEvents      []*analysis.Event
+	ProcessHistory    []*processLifetime
+	ProcessByPID      map[uint64][]*processLifetime
+	ThreadHistory     []*threadLifetime
+	ThreadsByID       map[uint64][]*threadLifetime
+	EventOwners       map[*analysis.Event]*processLifetime
+	SampleInstance    *processLifetime
+	RelevantInstances map[*processLifetime]bool
+}
+
+// processLifetime represents one observed instance of a PID. PID alone is not
+// an identity: Windows may reuse it after a process exits. Rundown instances
+// are known to have been present at capture startup, but their true creation
+// time is not inferred from the rundown event's timestamp.
+type processLifetime struct {
+	PID      uint64
+	PPID     uint64
+	Node     *analysis.ProcessNode
+	Start    time.Time
+	Stop     time.Time
+	HasStart bool
+	HasStop  bool
+	Rundown  bool
+	Sequence int
+	Parent   *processLifetime
+	Children []*processLifetime
+}
+
+type threadLifetime struct {
+	ThreadID uint64
+	PID      uint64
+	Start    time.Time
+	Stop     time.Time
+	HasStart bool
+	HasStop  bool
+	Process  *processLifetime
+	Sequence int
+}
+
+type eventAttribution struct {
+	owners   map[*analysis.Event]*processLifetime
+	relevant map[*processLifetime]bool
+}
+
+type orderedEvent struct {
+	event    *analysis.Event
+	sequence int
+	at       time.Time
+	hasTime  bool
 }
 
 func addChild(parent, child *analysis.ProcessNode) {
@@ -707,6 +759,553 @@ func resolveFilePath(event analysis.Event, names map[uint64]string) string {
 	return ""
 }
 
+// normalizeETWPID treats the common 32-bit ETW invalid-PID sentinel and the
+// all-bits-set 64-bit sentinel as unknown. The collector stores its 32-bit
+// event-header PID in a uint64, so comparing only against ^uint64(0) is wrong.
+func normalizeETWPID(pid uint64) uint64 {
+	if pid == 0xffffffff || pid == ^uint64(0) {
+		return 0
+	}
+	return pid
+}
+
+func parseEventTime(value string) (time.Time, bool) {
+	if value == "" {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return parsed, true
+}
+
+func orderLifecycleEvents(events []*analysis.Event) []orderedEvent {
+	ordered := make([]orderedEvent, 0, len(events))
+	for i, event := range events {
+		at, ok := parseEventTime(event.Time)
+		ordered = append(ordered, orderedEvent{event: event, sequence: i, at: at, hasTime: ok})
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		a, b := ordered[i], ordered[j]
+		if a.hasTime && b.hasTime && !a.at.Equal(b.at) {
+			return a.at.Before(b.at)
+		}
+		if a.hasTime != b.hasTime {
+			return a.hasTime // timed records must be ordered chronologically
+		}
+		return a.sequence < b.sequence
+	})
+	return ordered
+}
+
+func closeProcessLifetime(instance *processLifetime, at time.Time, hasTime bool) {
+	if instance == nil {
+		return
+	}
+	if hasTime {
+		instance.Stop = at
+		instance.HasStop = true
+	}
+}
+
+// buildProcessHistory reconstructs process instances from start/stop and
+// process-rundown records. It keeps the legacy PID->latest-node map for report
+// compatibility, while retaining every instance for time-aware event lookup.
+func buildProcessHistory(t *telemetry) {
+	t.Processes = make(map[uint64]*analysis.ProcessNode)
+	t.ProcessSeq = make(map[*analysis.ProcessNode]int)
+	t.ProcessHistory = nil
+	t.ProcessByPID = make(map[uint64][]*processLifetime)
+
+	ordered := orderLifecycleEvents(t.ProcessEvents)
+	active := make(map[uint64]*processLifetime)
+
+	for _, item := range ordered {
+		event := item.event
+		pid := normalizeETWPID(event.PID)
+		if pid == 0 {
+			continue
+		}
+
+		switch event.Type {
+		case "process_start", "process_rundown":
+			// A rundown duplicates a process-start when the same process was
+			// created just as capture began. Do not invent a second instance.
+			if event.Type == "process_rundown" && active[pid] != nil {
+				continue
+			}
+			if previous := active[pid]; previous != nil {
+				closeProcessLifetime(previous, item.at, item.hasTime)
+				delete(active, pid)
+			}
+
+			node := &analysis.ProcessNode{
+				PID:     pid,
+				PPID:    normalizeETWPID(event.PPID),
+				Image:   event.Image,
+				Command: event.Command,
+				Time:    event.Time,
+			}
+			instance := &processLifetime{
+				PID:      pid,
+				PPID:     node.PPID,
+				Node:     node,
+				Start:    item.at,
+				HasStart: item.hasTime,
+				Rundown:  event.Type == "process_rundown",
+				Sequence: len(t.ProcessHistory),
+			}
+			t.ProcessHistory = append(t.ProcessHistory, instance)
+			t.ProcessByPID[pid] = append(t.ProcessByPID[pid], instance)
+			active[pid] = instance
+			t.Processes[pid] = node
+			t.ProcessSeq[node] = instance.Sequence
+
+		case "process_stop":
+			if current := active[pid]; current != nil {
+				closeProcessLifetime(current, item.at, item.hasTime)
+				delete(active, pid)
+			}
+		// process_rundown_end is a trace-end snapshot, not an actual exit.
+		case "process_rundown_end":
+		}
+	}
+}
+
+func hasProcessHistory(t *telemetry, pid uint64) bool {
+	return pid != 0 && len(t.ProcessByPID[pid]) != 0
+}
+
+func processLifetimeAt(t *telemetry, pid uint64, at time.Time, hasTime bool) *processLifetime {
+	pid = normalizeETWPID(pid)
+	if pid == 0 {
+		return nil
+	}
+	matches := t.ProcessByPID[pid]
+	if len(matches) == 0 {
+		return nil
+	}
+	if !hasTime {
+		// Without event time, resolve only when one instance is possible.
+		if len(matches) == 1 {
+			return matches[0]
+		}
+		return nil
+	}
+
+	var best *processLifetime
+	for _, instance := range matches {
+		if !instance.HasStart && len(matches) > 1 {
+			continue // an untimed instance is ambiguous when this PID was reused
+		}
+		if instance.HasStart && at.Before(instance.Start) {
+			continue
+		}
+		if instance.HasStop && !at.Before(instance.Stop) {
+			continue // stop time is an exclusive end boundary
+		}
+		if best == nil || (instance.HasStart && (!best.HasStart || instance.Start.After(best.Start))) {
+			best = instance
+		}
+	}
+	return best
+}
+
+func closeThreadLifetime(instance *threadLifetime, at time.Time, hasTime bool) {
+	if instance == nil {
+		return
+	}
+	if hasTime {
+		instance.Stop = at
+		instance.HasStop = true
+	}
+}
+
+func buildThreadHistory(t *telemetry) {
+	t.ThreadHistory = nil
+	t.ThreadsByID = make(map[uint64][]*threadLifetime)
+	t.ThreadToProcess = make(map[uint64]uint64) // compatibility snapshot; never consulted for event attribution
+	ordered := orderLifecycleEvents(t.ThreadEvents)
+	active := make(map[uint64]*threadLifetime)
+	for _, item := range ordered {
+		event := item.event
+		tid := event.ThreadID
+		if tid == 0 {
+			continue
+		}
+		pid := normalizeETWPID(event.PID)
+		switch event.Type {
+		case "thread_start", "thread_dc_start":
+			if pid != 0 {
+				t.ThreadToProcess[tid] = pid
+			}
+			if event.Type == "thread_dc_start" && active[tid] != nil && active[tid].PID == pid {
+				continue
+			}
+			if previous := active[tid]; previous != nil {
+				closeThreadLifetime(previous, item.at, item.hasTime)
+			}
+			instance := &threadLifetime{
+				ThreadID: tid,
+				PID:      pid,
+				Start:    item.at,
+				HasStart: item.hasTime,
+				Process:  processLifetimeAt(t, pid, item.at, item.hasTime),
+				Sequence: len(t.ThreadHistory),
+			}
+			t.ThreadHistory = append(t.ThreadHistory, instance)
+			t.ThreadsByID[tid] = append(t.ThreadsByID[tid], instance)
+			active[tid] = instance
+		case "thread_stop":
+			if current := active[tid]; current != nil && (pid == 0 || current.PID == pid) {
+				closeThreadLifetime(current, item.at, item.hasTime)
+				delete(active, tid)
+			}
+		// thread_dc_stop is a trace rundown record, not necessarily thread exit.
+		case "thread_dc_stop":
+		}
+	}
+}
+
+func threadLifetimeAt(t *telemetry, tid uint64, at time.Time, hasTime bool) *threadLifetime {
+	if tid == 0 {
+		return nil
+	}
+	matches := t.ThreadsByID[tid]
+	if len(matches) == 0 {
+		return nil
+	}
+	if !hasTime {
+		if len(matches) == 1 {
+			return matches[0]
+		}
+		return nil
+	}
+	var best *threadLifetime
+	for _, instance := range matches {
+		if !instance.HasStart && len(matches) > 1 {
+			continue // an untimed instance is ambiguous when this TID was reused
+		}
+		if instance.HasStart && at.Before(instance.Start) {
+			continue
+		}
+		if instance.HasStop && !at.Before(instance.Stop) {
+			continue // stop time is an exclusive end boundary
+		}
+		if best == nil || (instance.HasStart && (!best.HasStart || instance.Start.After(best.Start))) {
+			best = instance
+		}
+	}
+	return best
+}
+
+func linkProcessInstances(t *telemetry) {
+	for _, instance := range t.ProcessHistory {
+		instance.Parent = nil
+		instance.Children = nil
+	}
+	for _, child := range t.ProcessHistory {
+		if child.PPID == 0 || child.PPID == child.PID {
+			continue
+		}
+		parent := processLifetimeAt(t, child.PPID, child.Start, child.HasStart)
+		if parent == nil && child.Rundown {
+			// Rundown can enumerate a child immediately before its already-live
+			// parent. Only use another observed rundown instance as this fallback.
+			var closest *processLifetime
+			var closestDelta time.Duration
+			for _, candidate := range t.ProcessHistory {
+				if candidate.PID != child.PPID || !candidate.Rundown {
+					continue
+				}
+				delta := candidate.Start.Sub(child.Start)
+				if delta < 0 {
+					delta = -delta
+				}
+				if closest == nil || delta < closestDelta {
+					closest, closestDelta = candidate, delta
+				}
+			}
+			parent = closest
+		}
+		if parent == nil || parent == child {
+			continue
+		}
+		child.Parent = parent
+		parent.Children = append(parent.Children, child)
+	}
+	for _, instance := range t.ProcessHistory {
+		sort.Slice(instance.Children, func(i, j int) bool {
+			if instance.Children[i].PID != instance.Children[j].PID {
+				return instance.Children[i].PID < instance.Children[j].PID
+			}
+			return instance.Children[i].Sequence < instance.Children[j].Sequence
+		})
+	}
+}
+
+func processInstancePath(sample *processLifetime) []*processLifetime {
+	if sample == nil {
+		return nil
+	}
+
+	var reverse []*processLifetime
+	seen := make(map[*processLifetime]bool)
+
+	for current := sample; current != nil; current = current.Parent {
+		if seen[current] {
+			break
+		}
+		seen[current] = true
+		reverse = append(reverse, current)
+	}
+
+	chain := make([]*processLifetime, len(reverse))
+	for i := range reverse {
+		chain[len(reverse)-1-i] = reverse[i]
+	}
+	return chain
+}
+
+func printProcessInstanceNode(node *processLifetime, prefix string, last bool) {
+	if node == nil || node.Node == nil {
+		return
+	}
+
+	branch := "├── "
+	nextPrefix := prefix + "│   "
+	if last {
+		branch = "└── "
+		nextPrefix = prefix + "    "
+	}
+
+	fmt.Printf("%s%s%s (PID=%d)\n", prefix, branch, node.Node.Image, node.PID)
+
+	for i, child := range node.Children {
+		printProcessInstanceNode(child, nextPrefix, i == len(node.Children)-1)
+	}
+}
+
+func printProcessInstancePath(chain []*processLifetime) {
+	if len(chain) == 0 {
+		return
+	}
+
+	root := chain[0]
+	fmt.Printf("%s (PID=%d)\n", root.Node.Image, root.PID)
+
+	for i := 1; i < len(chain); i++ {
+		current := chain[i]
+		prefix := strings.Repeat("    ", i-1)
+		fmt.Printf("%s└── %s (PID=%d)\n", prefix, current.Node.Image, current.PID)
+	}
+
+	sample := chain[len(chain)-1]
+	for i, child := range sample.Children {
+		printProcessInstanceNode(child, strings.Repeat("    ", len(chain)-1), i == len(sample.Children)-1)
+	}
+}
+
+func markRelevantInstances(root *processLifetime, relevant map[*processLifetime]bool) {
+	if root == nil || relevant[root] {
+		return
+	}
+	relevant[root] = true
+	for _, child := range root.Children {
+		markRelevantInstances(child, relevant)
+	}
+}
+
+func (t *telemetry) chooseSampleInstance(expectedSampleNames []string, samplePID uint64) {
+	if t.Sample == nil {
+		return
+	}
+	for _, instance := range t.ProcessHistory {
+		if instance.Node == t.Sample {
+			t.SampleInstance = instance
+			break
+		}
+	}
+
+	// If a PID was reused and the PID map retained a later, unrelated process,
+	// prefer the historical instance that actually matches the submitted sample.
+	names := normalizeSampleNames(expectedSampleNames)
+	var best *processLifetime
+	bestScore := -1
+	for _, instance := range t.ProcessHistory {
+		if samplePID != 0 && instance.PID != samplePID {
+			continue
+		}
+		score, _ := sampleSignalScore(instance.Node, names)
+		if score < 0 {
+			continue
+		}
+		if best == nil || score > bestScore || (score == bestScore && instance.Sequence < best.Sequence) {
+			best, bestScore = instance, score
+		}
+	}
+	currentScore := -1
+	if t.SampleInstance != nil {
+		currentScore, _ = sampleSignalScore(t.SampleInstance.Node, names)
+	}
+	if best != nil && (samplePID != 0 || t.SampleInstance == nil || bestScore > currentScore ||
+		(bestScore == currentScore && best.Sequence < t.SampleInstance.Sequence)) {
+		t.SampleInstance = best
+		t.Sample = best.Node
+		_, source := sampleSignalScore(best.Node, names)
+		if samplePID != 0 {
+			t.Root = SampleRootInfo{PID: best.PID, Image: best.Node.Image, Source: rootSourceAgentPID}
+		} else {
+			t.Root = SampleRootInfo{PID: best.PID, Image: best.Node.Image, Source: source}
+		}
+	}
+}
+
+// recentUniqueNetworkOwner is a conservative fallback for ETW network events
+// whose provider supplies the invalid-PID sentinel and no thread ID. It only
+// attributes an event when exactly one process instance started shortly before
+// the event; otherwise the event remains unassigned. This is a heuristic, not
+// a substitute for a real PID from the network provider.
+func recentUniqueNetworkOwner(t *telemetry, at time.Time, hasTime bool) *processLifetime {
+	if !hasTime {
+		return nil
+	}
+	const window = 250 * time.Millisecond
+	var candidate *processLifetime
+	for _, instance := range t.ProcessHistory {
+		if !instance.HasStart || instance.Start.After(at) || at.Sub(instance.Start) > window {
+			continue
+		}
+		// More than one newly-started process makes temporal correlation ambiguous.
+		if candidate != nil {
+			return nil
+		}
+		candidate = instance
+	}
+	if candidate != nil && t.RelevantInstances[candidate] {
+		return candidate
+	}
+	return nil
+}
+
+func resolveEventOwnership(t *telemetry) {
+	t.EventOwners = make(map[*analysis.Event]*processLifetime)
+	all := make([]*analysis.Event, 0,
+		len(t.FileEvents)+len(t.NetworkEvents)+len(t.RegistryEvents)+len(t.DNSEvents)+len(t.ImageEvents))
+	all = append(all, t.FileEvents...)
+	all = append(all, t.NetworkEvents...)
+	all = append(all, t.RegistryEvents...)
+	all = append(all, t.DNSEvents...)
+	all = append(all, t.ImageEvents...)
+	for _, event := range all {
+		rawPID := normalizeETWPID(event.PID)
+		if rawPID == 0 {
+			event.PID = 0
+		}
+		at, hasTime := parseEventTime(event.Time)
+
+		owner := processLifetimeAt(t, rawPID, at, hasTime)
+		if owner != nil {
+			event.PID = owner.PID
+			t.EventOwners[event] = owner
+			continue
+		}
+
+		// A time-aware TID match can rescue a missing/sentinel PID. If the raw
+		// PID has known history, only accept the TID fallback when it agrees with
+		// the raw PID; this allows modest timestamp skew without crossing PID reuse.
+		thread := threadLifetimeAt(t, event.ThreadID, at, hasTime)
+		if thread != nil && thread.Process != nil &&
+			(rawPID == 0 || rawPID == thread.Process.PID || !hasProcessHistory(t, rawPID)) {
+			event.PID = thread.Process.PID
+			t.EventOwners[event] = thread.Process
+			continue
+		}
+
+		// Some network ETW records carry neither a usable PID nor TID. Use a
+		// narrow, uniqueness-checked temporal fallback only for those records.
+		// Never apply this to file/registry/DNS/image events, and never guess when
+		// multiple processes started in the correlation window.
+		if rawPID == 0 && strings.HasPrefix(event.Type, "network_") {
+			if networkOwner := recentUniqueNetworkOwner(t, at, hasTime); networkOwner != nil {
+				event.PID = networkOwner.PID
+				t.EventOwners[event] = networkOwner
+				continue
+			}
+		}
+
+		// If this PID is known but no instance was alive at the event time, do
+		// not let PID reuse make the event look like sample activity. Preserve it
+		// as unassigned rather than guessing which instance produced the event.
+		if rawPID != 0 && hasProcessHistory(t, rawPID) {
+			event.PID = 0
+			continue
+		}
+
+		// Keep an unknown nonzero PID for the report's unknown-process counter;
+		// normalize only the sentinel values that cannot identify a process.
+		event.PID = rawPID
+	}
+}
+
+func eventIsRelevant(event *analysis.Event, relevantPIDs map[uint64]bool, attribution ...eventAttribution) bool {
+	if len(attribution) > 0 && attribution[0].owners != nil {
+		if owner, ok := attribution[0].owners[event]; ok {
+			return attribution[0].relevant[owner]
+		}
+	}
+	return isRelevantProcess(event.PID, relevantPIDs)
+}
+
+func eventImage(event *analysis.Event, processes map[uint64]*analysis.ProcessNode, attribution ...eventAttribution) string {
+	if len(attribution) > 0 && attribution[0].owners != nil {
+		if owner, ok := attribution[0].owners[event]; ok && owner.Node != nil && owner.Node.Image != "" {
+			return owner.Node.Image
+		}
+	}
+	if process, ok := processes[event.PID]; ok && process.Image != "" {
+		return process.Image
+	}
+	return "unknown"
+}
+
+func accountFileEventsWithAttribution(
+	fileEvents []*analysis.Event,
+	relevantPIDs map[uint64]bool,
+	processes map[uint64]*analysis.ProcessNode,
+	fileNames map[uint64]string,
+	suppressedReads uint64,
+	attribution eventAttribution,
+) FileEventAccounting {
+	acc := FileEventAccounting{
+		InTreeReadsSuppressed:  suppressedReads,
+		RawEventCounts:         make(map[string]uint64),
+		ExcludedRawEventCounts: make(map[string]uint64),
+	}
+	for _, event := range fileEvents {
+		acc.TotalFileEvents++
+		label := fileEventLabel(event)
+		if eventIsRelevant(event, relevantPIDs, attribution) {
+			acc.InTree++
+			acc.RawEventCounts[label]++
+			if resolveFilePath(*event, fileNames) == "" {
+				acc.InTreeUnresolvedPath++
+			}
+			continue
+		}
+		acc.ExcludedRawEventCounts[label]++
+		if event.PID == 0 {
+			acc.ExcludedNoPID++
+		} else if _, known := processes[event.PID]; known || (attribution.owners[event] != nil) {
+			acc.ExcludedKnownProcess++
+		} else {
+			acc.ExcludedUnknownProcess++
+		}
+	}
+	return acc
+}
+
 func readEvents(path string, expectedSampleNames ...string) (*telemetry, error) {
 	return readEventsWithOptions(path, AnalyzeOptions{}, expectedSampleNames...)
 }
@@ -727,6 +1326,8 @@ func readEventsWithOptions(
 		ProcessSeq:      make(map[*analysis.ProcessNode]int),
 		FileNames:       make(map[uint64]string),
 		ThreadToProcess: make(map[uint64]uint64),
+		ProcessEvents:   make([]*analysis.Event, 0),
+		ThreadEvents:    make([]*analysis.Event, 0),
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -739,21 +1340,15 @@ func readEventsWithOptions(
 		}
 
 		switch {
-		case event.Type == "process_start":
-			node := &analysis.ProcessNode{
-				PID:     event.PID,
-				PPID:    event.PPID,
-				Image:   event.Image,
-				Command: event.Command,
-				Time:    event.Time,
-			}
-			t.Processes[event.PID] = node
-			t.ProcessSeq[node] = len(t.ProcessSeq)
+		case event.Type == "process_start" || event.Type == "process_stop" ||
+			event.Type == "process_rundown" || event.Type == "process_rundown_end":
+			copyEvent := event
+			t.ProcessEvents = append(t.ProcessEvents, &copyEvent)
 
-		case event.Type == "thread_start" || event.Type == "thread_dc_start":
-			if event.ThreadID != 0 && event.PID != 0 {
-				t.ThreadToProcess[event.ThreadID] = event.PID
-			}
+		case event.Type == "thread_start" || event.Type == "thread_stop" ||
+			event.Type == "thread_dc_start" || event.Type == "thread_dc_stop":
+			copyEvent := event
+			t.ThreadEvents = append(t.ThreadEvents, &copyEvent)
 
 		case event.Type == "etw_lost_events":
 			if event.LostEvents > t.LostEvents {
@@ -800,6 +1395,13 @@ func readEventsWithOptions(
 		return nil, fmt.Errorf("read telemetry: %w", err)
 	}
 
+	// Reconstruct process and thread lifetimes after reading the entire stream.
+	// The JSONL writer merges two ETW consumers, so arrival order is not a safe
+	// substitute for the event timestamps when resolving ownership.
+	buildProcessHistory(t)
+	buildThreadHistory(t)
+	linkProcessInstances(t)
+
 	// Resolve the sample process only after the complete process table has been
 	// collected. The sandbox normally presents the sample as sample.exe, but
 	// frontend uploads may have any original filename. Prefer a process whose
@@ -813,33 +1415,14 @@ func readEventsWithOptions(
 		expectedSampleNames,
 	)
 
-	// Resolve file-event attribution without overwriting a valid ETW PID.
-	// Thread IDs can be reused, so the final ThreadToProcess entry is not
-	// reliable for reconstructing historical file events.
-	for _, event := range t.FileEvents {
-		// Classic FileIo can report 0xffffffff instead of a usable PID.
-		if event.PID == ^uint64(0) {
-			event.PID = 0
-		}
-
-		// Preserve the original PID when it identifies a process in our
-		// captured process table. Do not replace it with a potentially stale
-		// thread-to-process mapping.
-		if event.PID == 0 && event.ThreadID != 0 {
-			if pid, ok := t.ThreadToProcess[event.ThreadID]; ok {
-				event.PID = pid
-			}
-		}
-
-		if event.FileName == "" {
-			if event.FileObject != 0 {
-				event.FileName = t.FileNames[event.FileObject]
-			}
-			if event.FileName == "" && event.FileKey != 0 {
-				event.FileName = t.FileNames[event.FileKey]
-			}
-		}
+	// Bind the exact sample process instance, mark its process-instance tree,
+	// then resolve events using timestamps and historical thread ownership.
+	t.chooseSampleInstance(expectedSampleNames, opts.SamplePID)
+	t.RelevantInstances = make(map[*processLifetime]bool)
+	if t.SampleInstance != nil {
+		markRelevantInstances(t.SampleInstance, t.RelevantInstances)
 	}
+	resolveEventOwnership(t)
 
 	return t, nil
 }
@@ -882,12 +1465,13 @@ func collectSampleFileActivity(
 	relevantPIDs map[uint64]bool,
 	processes map[uint64]*analysis.ProcessNode,
 	fileNames map[uint64]string,
+	attribution ...eventAttribution,
 ) ([]analysis.FileActivity, uint64) {
 	activities := make(map[string]*analysis.FileActivity)
 	var suppressedEvents uint64
 
 	for _, event := range fileEvents {
-		if !isRelevantProcess(event.PID, relevantPIDs) {
+		if !eventIsRelevant(event, relevantPIDs, attribution...) {
 			continue
 		}
 
@@ -913,14 +1497,18 @@ func collectSampleFileActivity(
 			}
 		}
 
-		image := "unknown"
-		if process, ok := processes[event.PID]; ok {
-			image = process.Image
-		}
+		image := eventImage(event, processes, attribution...)
 
-		// Preserve action/path/PID attribution in the evidence row while
-		// deduplicating repeated low-level I/O.
-		key := fmt.Sprintf("%s\x00%s", action, path)
+		// Deduplicate repeated low-level I/O only within the same process
+		// instance. PID alone is not sufficient because Windows can reuse PIDs;
+		// the historical owner sequence distinguishes separate lifetimes.
+		instanceSequence := -1
+		if len(attribution) > 0 && attribution[0].owners != nil {
+			if owner, ok := attribution[0].owners[event]; ok && owner != nil {
+				instanceSequence = owner.Sequence
+			}
+		}
+		key := fmt.Sprintf("%s\x00%s\x00%d\x00%d", action, path, event.PID, instanceSequence)
 		activity, ok := activities[key]
 		if !ok {
 			activity = &analysis.FileActivity{
@@ -960,11 +1548,12 @@ func collectSampleNetworkActivity(
 	events []*analysis.Event,
 	relevantPIDs map[uint64]bool,
 	processes map[uint64]*analysis.ProcessNode,
+	attribution ...eventAttribution,
 ) []analysis.NetworkActivity {
 	activities := make(map[string]*analysis.NetworkActivity)
 
 	for _, event := range events {
-		if !isRelevantProcess(event.PID, relevantPIDs) {
+		if !eventIsRelevant(event, relevantPIDs, attribution...) {
 			continue
 		}
 
@@ -973,10 +1562,7 @@ func collectSampleNetworkActivity(
 			continue
 		}
 
-		image := "unknown"
-		if process, ok := processes[event.PID]; ok {
-			image = process.Image
-		}
+		image := eventImage(event, processes, attribution...)
 
 		key := fmt.Sprintf("%s\x00%s\x00%d\x00%d", action, event.DestIP, event.DestPort, event.PID)
 		activity, ok := activities[key]
@@ -1030,11 +1616,12 @@ func collectSampleRegistryActivity(
 	events []*analysis.Event,
 	relevantPIDs map[uint64]bool,
 	processes map[uint64]*analysis.ProcessNode,
+	attribution ...eventAttribution,
 ) []analysis.RegistryActivity {
 	activities := make(map[string]*analysis.RegistryActivity)
 
 	for _, event := range events {
-		if !isRelevantProcess(event.PID, relevantPIDs) {
+		if !eventIsRelevant(event, relevantPIDs, attribution...) {
 			continue
 		}
 
@@ -1043,10 +1630,7 @@ func collectSampleRegistryActivity(
 			continue
 		}
 
-		image := "unknown"
-		if process, ok := processes[event.PID]; ok {
-			image = process.Image
-		}
+		image := eventImage(event, processes, attribution...)
 
 		key := fmt.Sprintf("%s\x00%s\x00%d", action, event.RegistryKey, event.PID)
 		activity, ok := activities[key]
@@ -1084,18 +1668,16 @@ func collectSampleDNSActivity(
 	events []*analysis.Event,
 	relevantPIDs map[uint64]bool,
 	processes map[uint64]*analysis.ProcessNode,
+	attribution ...eventAttribution,
 ) []analysis.DNSActivity {
 	activities := make(map[string]*analysis.DNSActivity)
 
 	for _, event := range events {
-		if !isRelevantProcess(event.PID, relevantPIDs) || event.DNSQueryName == "" {
+		if !eventIsRelevant(event, relevantPIDs, attribution...) || event.DNSQueryName == "" {
 			continue
 		}
 
-		image := "unknown"
-		if process, ok := processes[event.PID]; ok {
-			image = process.Image
-		}
+		image := eventImage(event, processes, attribution...)
 
 		key := fmt.Sprintf("%s\x00%d", event.DNSQueryName, event.PID)
 		activity, ok := activities[key]
@@ -1142,11 +1724,12 @@ func collectSampleImageActivity(
 	events []*analysis.Event,
 	relevantPIDs map[uint64]bool,
 	processes map[uint64]*analysis.ProcessNode,
+	attribution ...eventAttribution,
 ) []analysis.ImageActivity {
 	activities := make(map[string]*analysis.ImageActivity)
 
 	for _, event := range events {
-		if !isRelevantProcess(event.PID, relevantPIDs) || event.Image == "" {
+		if !eventIsRelevant(event, relevantPIDs, attribution...) || event.Image == "" {
 			continue
 		}
 
@@ -1157,10 +1740,7 @@ func collectSampleImageActivity(
 			continue
 		}
 
-		procImage := "unknown"
-		if process, ok := processes[event.PID]; ok {
-			procImage = process.Image
-		}
+		procImage := eventImage(event, processes, attribution...)
 
 		key := fmt.Sprintf("%s\x00%d", event.Image, event.PID)
 		activity, ok := activities[key]
@@ -1314,28 +1894,52 @@ func AnalyzeWithOptions(
 		return mitre.AnalysisOutput{}, fmt.Errorf("no sample process found (expected upload names: %s)", strings.Join(expectedSampleNames, ", "))
 	}
 
-	chain := buildProcessTree(t.Processes, t.Sample)
-	if len(chain) == 0 {
-		return mitre.AnalysisOutput{}, fmt.Errorf("no process tree found")
+	// Preserve the legacy PID map for report APIs, but use historical
+	// process instances for the sample's actual process tree.
+	analysisProcesses := make(map[uint64]*analysis.ProcessNode, len(t.Processes))
+	for pid, node := range t.Processes {
+		analysisProcesses[pid] = node
 	}
 
 	relevantPIDs := make(map[uint64]bool)
-	markDescendants(t.Sample, relevantPIDs)
+	for _, instance := range t.ProcessHistory {
+		if t.RelevantInstances[instance] {
+			relevantPIDs[instance.PID] = true
+			analysisProcesses[instance.PID] = instance.Node
+		}
+	}
 
-	fileActivities, suppressedFileEvents := collectSampleFileActivity(t.FileEvents, relevantPIDs, t.Processes, t.FileNames)
+	if len(relevantPIDs) == 0 {
+		markDescendants(t.Sample, relevantPIDs)
+	}
+
+	chain := processInstancePath(t.SampleInstance)
+	if len(chain) == 0 {
+		return mitre.AnalysisOutput{}, fmt.Errorf("no process tree found")
+	}
+	attr := eventAttribution{owners: t.EventOwners, relevant: t.RelevantInstances}
+
+	fileActivities, suppressedFileEvents := collectSampleFileActivity(t.FileEvents, relevantPIDs, analysisProcesses, t.FileNames, attr)
 	fileSummary := buildFileBehaviorSummary(fileActivities, suppressedFileEvents)
-	fileSummary.Accounting = accountFileEvents(
+	fileSummary.Accounting = accountFileEventsWithAttribution(
 		t.FileEvents,
 		relevantPIDs,
-		t.Processes,
+		analysisProcesses,
 		t.FileNames,
 		suppressedFileEvents,
+		attr,
 	)
-	networkActivities := collectSampleNetworkActivity(t.NetworkEvents, relevantPIDs, t.Processes)
-	registryActivities := collectSampleRegistryActivity(t.RegistryEvents, relevantPIDs, t.Processes)
-	dnsActivities := collectSampleDNSActivity(t.DNSEvents, relevantPIDs, t.Processes)
-	imageActivities := collectSampleImageActivity(t.ImageEvents, relevantPIDs, t.Processes)
-	moduleMetrics := collectModuleMetrics(t.ImageEvents, relevantPIDs, len(imageActivities))
+	networkActivities := collectSampleNetworkActivity(t.NetworkEvents, relevantPIDs, analysisProcesses, attr)
+	registryActivities := collectSampleRegistryActivity(t.RegistryEvents, relevantPIDs, analysisProcesses, attr)
+	dnsActivities := collectSampleDNSActivity(t.DNSEvents, relevantPIDs, analysisProcesses, attr)
+	imageActivities := collectSampleImageActivity(t.ImageEvents, relevantPIDs, analysisProcesses, attr)
+	imageEventsForSample := make([]*analysis.Event, 0, len(t.ImageEvents))
+	for _, event := range t.ImageEvents {
+		if eventIsRelevant(event, relevantPIDs, attr) {
+			imageEventsForSample = append(imageEventsForSample, event)
+		}
+	}
+	moduleMetrics := collectModuleMetrics(imageEventsForSample, relevantPIDs, len(imageActivities))
 
 	iocResult := ioc.Extract(ioc.Activities{
 		Files:    fileActivities,
@@ -1343,7 +1947,7 @@ func AnalyzeWithOptions(
 		Registry: registryActivities,
 		DNS:      dnsActivities,
 		Images:   imageActivities,
-	}, t.Processes, relevantPIDs, t.Sample)
+	}, analysisProcesses, relevantPIDs, t.Sample)
 
 	mitreDB, err := mitre.LoadDatabase(`data\mitre-data\enterprise-attack.json`)
 	if err != nil {
@@ -1407,6 +2011,10 @@ func AnalyzeWithOptions(
 	fmt.Printf("Risk     : %s (%d/100)\n", threatScore.Severity, threatScore.Score)
 
 	fmt.Println()
+	fmt.Println("PROCESS TREE")
+	printProcessInstancePath(chain)
+
+	fmt.Println()
 	fmt.Println("TECHNIQUES")
 
 	if len(techniques) == 0 {
@@ -1439,18 +2047,20 @@ func AnalyzeWithOptions(
 		fmt.Println("NOTABLE FILES")
 		for _, activity := range fileSummary.NotableFiles {
 			if activity.Action == "WRITE" && activity.Bytes > 0 {
-				fmt.Printf("  • %s x%d | %s | %s | bytes=%d\n",
+				fmt.Printf("  • %s x%d | %s (PID=%d) | %s | bytes=%d\n",
 					activity.Action,
 					activity.Count,
 					activity.Image,
+					activity.PID,
 					activity.Path,
 					activity.Bytes,
 				)
 			} else {
-				fmt.Printf("  • %s x%d | %s | %s\n",
+				fmt.Printf("  • %s x%d | %s (PID=%d) | %s\n",
 					activity.Action,
 					activity.Count,
 					activity.Image,
+					activity.PID,
 					activity.Path,
 				)
 			}

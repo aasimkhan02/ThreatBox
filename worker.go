@@ -225,6 +225,34 @@ func ProcessNextJob(db *pgxpool.Pool) error {
 	}
 
 	analysisData, err := json.Marshal(analysisOutput)
+
+	if err == nil {
+
+		aiReport, aiErr := generateAIReport(analysisOutput)
+
+		if aiErr != nil {
+
+			log.Printf("AI report unavailable for job %s: %v", jobID, aiErr)
+
+		} else {
+
+			var savedOutput map[string]json.RawMessage
+
+			if decodeErr := json.Unmarshal(analysisData, &savedOutput); decodeErr != nil {
+
+				log.Printf("Could not attach AI report for job %s: %v", jobID, decodeErr)
+
+			} else {
+
+				savedOutput["ai_report"] = aiReport
+
+				analysisData, err = json.Marshal(savedOutput)
+
+			}
+
+		}
+
+	}
 	if err != nil {
 		_ = UpdateAnalysisResultStatus(db, analysisResultID, "failed")
 		return FailRunningJob(

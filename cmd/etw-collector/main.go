@@ -736,7 +736,11 @@ func run() (exitCode int) {
 		providerID := h.EventRec.EventHeader.ProviderId
 
 		if providerID == *etw.ProcessKernelGuid {
-			if opcode == 1 || opcode == 2 {
+			// Capture process rundown (DCStart/DCEnd) as well as normal
+			// start/stop events. DCStart lets analysis learn about processes
+			// that were already alive when the ETW session began. DCEnd is
+			// a trace rundown event, not proof that the process exited.
+			if opcode >= 1 && opcode <= 4 {
 				handleProcessEvent(writer, h, opcode)
 			}
 			return nil
@@ -935,23 +939,32 @@ func handleProcessEvent(
 
 	event.EventID = opcode
 	event.Time = h.Timestamp().Format(time.RFC3339Nano)
-	event.PID, _ = h.GetPropertyUint("ProcessId")
+	event.PID = getUintAny(h, "ProcessId")
 
 	switch opcode {
 	case 1:
 		event.Type = "process_start"
+	case 2:
+		event.Type = "process_stop"
+	case 3:
+		event.Type = "process_rundown"
+	case 4:
+		event.Type = "process_rundown_end"
+	default:
+		return
+	}
+
+	// Start and DCStart records carry the best available process identity.
+	// Stop/DCEnd records may carry a subset, so best-effort property reads
+	// are deliberately non-fatal.
+	if opcode == 1 || opcode == 3 {
 		event.PPID, _ = h.GetPropertyUint("ParentId")
 		event.SessionID, _ = h.GetPropertyUint("SessionId")
 		event.Image, _ = h.GetPropertyString("ImageFileName")
 		event.Command, _ = h.GetPropertyString("CommandLine")
-
-	case 2:
-		event.Type = "process_stop"
+	} else {
 		event.ExitCode, _ = h.GetPropertyInt("ExitStatus")
 		event.Image, _ = h.GetPropertyString("ImageFileName")
-
-	default:
-		return
 	}
 
 	if err := writer.write(event); err != nil {
@@ -959,10 +972,22 @@ func handleProcessEvent(
 		return
 	}
 
-	if err := writer.flush(false); err != nil {
-		fmt.Printf("FLUSH ERROR: %v\n", err)
+	// Keep the existing eager flush for actual lifecycle transitions. A
+	// process rundown can contain hundreds of snapshot records; the regular
+	// writer ticker and final close durably flush those without forcing a
+	// separate buffer flush for every snapshot item.
+	if opcode == 1 || opcode == 2 {
+		if err := writer.flush(false); err != nil {
+			fmt.Printf("FLUSH ERROR: %v\n", err)
+		}
 	}
 
+	// Rundown records are high-volume snapshots. Persist them, but avoid
+	// flooding sample-console.log with hundreds or thousands of infrastructure
+	// processes; actual start/stop records retain the existing diagnostic log.
+	if opcode == 3 || opcode == 4 {
+		return
+	}
 	data, _ := json.Marshal(event)
 	fmt.Printf("ETW EVENT | %s\n", string(data))
 }
@@ -974,9 +999,25 @@ func handleNetworkEvent(
 	var event Event
 
 	event.EventID = h.EventID()
+
+	if event.EventID == 12 || event.EventID == 15 {
+		fmt.Printf(
+			"TCP SCHEMA | eventID=%d | headerPID=%d | properties=%q\n",
+			event.EventID,
+			h.EventRec.EventHeader.ProcessId,
+			h.GetEventPropertyNames(),
+		)
+	}
+
 	event.Time = h.Timestamp().Format(time.RFC3339Nano)
 
-	event.PID = uint64(h.EventRec.EventHeader.ProcessId)
+	event.PID = getUintAny(h, "PID")
+	if event.PID == 0 {
+		event.PID = uint64(h.EventRec.EventHeader.ProcessId)
+		if event.PID == 0xffffffff {
+			event.PID = 0
+		}
+	}
 
 	switch event.EventID {
 	case 12:
@@ -993,8 +1034,12 @@ func handleNetworkEvent(
 
 	event.SourceIP = getStringAny(h, "saddr", "SourceAddress")
 	event.DestIP = getStringAny(h, "daddr", "DestinationAddress")
-	event.SourcePort = getUintAny(h, "sport", "SourcePort")
-	event.DestPort = getUintAny(h, "dport", "DestinationPort")
+	event.SourcePort = normalizeNetworkPort(
+		getUintAny(h, "sport", "SourcePort"),
+	)
+	event.DestPort = normalizeNetworkPort(
+		getUintAny(h, "dport", "DestinationPort"),
+	)
 
 	if err := writer.write(event); err != nil {
 		fmt.Printf("NETWORK WRITE ERROR: %v\n", err)
@@ -1334,6 +1379,15 @@ func handleThreadEvent(
 	if err := writer.write(event); err != nil {
 		fmt.Printf("WRITE ERROR: %v\n", err)
 	}
+}
+
+func normalizeNetworkPort(port uint64) uint64 {
+	if port > 0xffff {
+		return port
+	}
+
+	p := uint16(port)
+	return uint64((p << 8) | (p >> 8))
 }
 
 func getUintAny(

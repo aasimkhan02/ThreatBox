@@ -1474,6 +1474,11 @@ func (e *EventRecordHelper) getPrepProperty(name string) (p *Property, isCustom 
 	return nil, false, fmt.Errorf("%w %s", ErrUnknownProperty, name)
 }
 
+// GetEventPropertyNames returns the schema property names for the current event.
+func (e *EventRecordHelper) GetEventPropertyNames() []string {
+    return append([]string(nil), e.getCachedPropNames()...)
+}
+
 // GetPropertyString returns the formatted string value of the named property.
 // Returns ErrUnknownProperty if the property doesn't exist.
 func (e *EventRecordHelper) GetPropertyString(name string) (s string, err error) {
